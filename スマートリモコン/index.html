@@ -1,0 +1,1738 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>スマートリモコン</title>
+<script>
+(function(){
+  var h = window.location.hostname;
+  var isLan = h === 'localhost' || h === '127.0.0.1' ||
+    /^10\./.test(h) ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /\.local$/.test(h);
+  document.title = isLan ? '(家)スマートリモコン' : '(外)スマートリモコン';
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #0e0e0f;
+  --surface: #18181b;
+  --surface2:#1f1f24;
+  --border:  #2a2a30;
+  --accent:  #e8ff47;
+  --accent2: #ff6b35;
+  --text:    #e8e8ea;
+  --muted:   #6b6b78;
+  --success: #4ade80;
+  --error:   #f87171;
+  --radius:  6px;
+  --mono: 'Space Mono', monospace;
+  --sans: 'Noto Sans JP', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  padding-bottom: 60px;
+}
+
+/* ── header ── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+header h1 { font-family: var(--mono); font-size: .95rem; letter-spacing: .1em; color: var(--accent); text-transform: uppercase; }
+header span { font-size: .7rem; color: var(--muted); font-family: var(--mono); }
+
+/* ── device bar ── */
+#device-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  scrollbar-width: none;
+}
+#device-bar::-webkit-scrollbar { display: none; }
+
+.dev-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 14px 10px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dev-chip:hover { color: var(--text); }
+.dev-chip.active { color: var(--accent); border-bottom-color: var(--accent); }
+.dev-chip .dev-icon { font-size: 1.3rem; line-height: 1; }
+.dev-chip .dev-label { font-size: .65rem; font-family: var(--mono); letter-spacing: .04em; }
+
+.dev-chip-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px; height: 38px;
+  margin-left: 6px;
+  flex-shrink: 0;
+  border: 1px dashed var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  align-self: center;
+}
+.dev-chip-add:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── tabs ── */
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin: 20px 20px 20px;
+  background: var(--surface);
+  padding: 3px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  width: fit-content;
+}
+.tab-btn {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: 7px 16px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.tab-btn.active { background: var(--border); color: var(--accent); }
+
+/* ── panels ── */
+.panel { display: none; padding: 0 20px; }
+.panel.active { display: block; }
+.section-label {
+  font-family: var(--mono);
+  font-size: .62rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+/* ── send grid ── */
+#btn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.ir-btn {
+  position: relative;
+  padding: 18px 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: .84rem;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, transform .08s;
+  overflow: hidden;
+}
+.ir-btn::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity .2s;
+  border-radius: inherit;
+}
+.ir-btn:hover { border-color: var(--accent); }
+.ir-btn:active { transform: scale(.96); }
+.ir-btn.flash::after { opacity: .12; }
+.ir-btn .send-icon { display: block; font-size: .6rem; color: var(--muted); margin-top: 5px; font-family: var(--mono); }
+.ir-btn[draggable="true"] { cursor: grab; }
+.ir-btn[draggable="true"]:active { cursor: grabbing; }
+.ir-btn.dragging { opacity: .3; transform: scale(.97); }
+.ir-btn.drag-over {
+  border-color: var(--accent);
+  background: #1a1e0a;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* ── record form ── */
+.record-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  max-width: 400px;
+}
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.field label { font-family: var(--mono); font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.field input, .field select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .85rem;
+  padding: 9px 11px;
+  outline: none;
+  transition: border-color .15s;
+}
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.field input::placeholder { color: var(--muted); }
+.field select option { background: var(--surface); }
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: #0e0e0f;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity .15s, transform .08s;
+}
+.btn-primary:hover { opacity: .88; }
+.btn-primary:active { transform: scale(.97); }
+.btn-primary:disabled { opacity: .35; cursor: not-allowed; }
+
+/* status */
+.status-badge {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: .75rem;
+  display: none;
+  align-items: center;
+  gap: 10px;
+}
+.status-badge.show    { display: flex; }
+.status-badge.recording { background: #1a1a10; border: 1px solid #4a4a10; color: var(--accent); }
+.status-badge.done      { background: #0f1f14; border: 1px solid #1a4a28; color: var(--success); }
+.status-badge.error     { background: #1f0f0f; border: 1px solid #4a1a1a; color: var(--error); }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.recording .pulse { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(.6)} }
+
+/* ── manage list ── */
+.code-list { display: flex; flex-direction: column; gap: 6px; max-width: 460px; }
+.code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+}
+.code-row-name { font-family: var(--mono); font-size: .82rem; }
+.code-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.btn-sm {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: .64rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: .15s;
+}
+.btn-sm.s-send    { color: var(--text); }
+.btn-sm.s-send:hover    { border-color: var(--accent);  color: var(--accent); }
+.btn-sm.s-rename  { color: var(--muted); }
+.btn-sm.s-rename:hover  { border-color: var(--accent);  color: var(--accent); }
+.btn-sm.s-relearn { color: var(--muted); }
+.btn-sm.s-relearn:hover { border-color: var(--accent2); color: var(--accent2); }
+.btn-sm.s-del     { color: var(--muted); }
+.btn-sm.s-del:hover     { border-color: var(--error);   color: var(--error); }
+
+/* ── operation chips ── */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.chip {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: .8rem;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+  white-space: nowrap;
+}
+.chip:hover  { border-color: var(--accent); color: var(--text); }
+.chip.active { border-color: var(--accent); color: var(--accent); background: #1a1e0a; }
+
+.rename-input {
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .82rem;
+  padding: 3px 8px;
+  outline: none;
+  width: 150px;
+}
+
+/* ── device manage ── */
+.device-list { display: flex; flex-direction: column; gap: 8px; max-width: 460px; margin-bottom: 24px; }
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.device-row-icon { font-size: 1.4rem; flex-shrink: 0; }
+.device-row-info { flex: 1; }
+.device-row-name { font-size: .88rem; font-weight: 500; }
+.device-row-cat  { font-family: var(--mono); font-size: .65rem; color: var(--muted); margin-top: 2px; }
+.device-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.add-device-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 400px;
+}
+.add-device-form h3 {
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+/* icon picker */
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.icon-opt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--bg);
+  transition: border-color .15s;
+}
+.icon-opt:hover   { border-color: var(--accent); }
+.icon-opt.selected { border-color: var(--accent); background: #1a1e0a; }
+
+.empty-state { color: var(--muted); font-family: var(--mono); font-size: .78rem; padding: 20px 0; }
+
+/* ── toast ── */
+#toast {
+  position: fixed;
+  bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 18px;
+  font-family: var(--mono);
+  font-size: .75rem;
+  color: var(--text);
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1), opacity .25s;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 200;
+}
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+#toast.ok   { border-color: var(--success); color: var(--success); }
+#toast.fail { border-color: var(--error);   color: var(--error); }
+
+/* ── automation panel ── */
+.auto-list { display: flex; flex-direction: column; gap: 10px; max-width: 560px; margin-bottom: 24px; }
+.auto-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  transition: border-color .15s;
+}
+.auto-card.disabled { opacity: .5; }
+.auto-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.auto-card-name {
+  font-size: .9rem;
+  font-weight: 500;
+  flex: 1;
+}
+.auto-card-time {
+  font-family: var(--mono);
+  font-size: .75rem;
+  color: var(--accent);
+  background: #1a1e0a;
+  border: 1px solid #2d3310;
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.auto-card-days {
+  font-family: var(--mono);
+  font-size: .65rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.auto-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.auto-action-chip {
+  font-family: var(--mono);
+  font-size: .68rem;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--muted);
+  background: var(--bg);
+}
+.auto-card-btns { display: flex; gap: 6px; }
+.toggle-switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 12px; height: 12px;
+  left: 3px; top: 3px;
+  background: var(--muted);
+  border-radius: 50%;
+  transition: transform .2s, background .2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: #1a1e0a; border: 1px solid var(--accent); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(14px); background: var(--accent); }
+
+/* automation form */
+.auto-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 520px;
+}
+.auto-form h3 {
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.days-grid {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.day-btn {
+  width: 34px; height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .7rem;
+  cursor: pointer;
+  transition: .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.day-btn:hover { border-color: var(--accent); color: var(--text); }
+.day-btn.active { border-color: var(--accent); background: #1a1e0a; color: var(--accent); }
+
+.action-builder {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--bg);
+  margin-top: 4px;
+}
+.action-builder-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+.action-builder-row .field { flex: 1; margin-bottom: 0; }
+.action-list-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 10px;
+}
+.action-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: .72rem;
+}
+.action-preview-row span { flex: 1; }
+.action-preview-row .seq { color: var(--muted); font-size: .65rem; }
+.btn-remove-action {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: .8rem;
+  padding: 0 2px;
+  transition: color .15s;
+  flex-shrink: 0;
+}
+.btn-remove-action:hover { color: var(--error); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>IR Remote</h1>
+  <span>infrared controller</span>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0">
+    <!-- Export button -->
+    <a id="btn-export" href="/api/export" download="irremote_backup.json"
+       title="エクスポート"
+       style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--muted);font-family:var(--mono);font-size:.85rem;cursor:pointer;transition:.15s;text-decoration:none"
+       onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">↓</a>
+
+    <!-- Import button -->
+    <label id="btn-import-label" title="インポート"
+       style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--muted);font-family:var(--mono);font-size:.85rem;cursor:pointer;transition:.15s"
+       onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+      ↑
+      <input type="file" id="btn-import-input" accept=".json,application/json" style="display:none">
+    </label>
+
+    <button id="btn-shutdown" title="Raspberry Pi をシャットダウン"
+       style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--muted);font-family:var(--mono);font-size:.9rem;cursor:pointer;transition:.15s"
+       onmouseover="this.style.borderColor='var(--error)';this.style.color='var(--error)'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">⏻</button>
+  </div>
+</header>
+
+<!-- device bar -->
+<div id="device-bar">
+  <!-- populated by JS -->
+  <button class="dev-chip-add" id="btn-add-device" title="デバイスを追加">＋</button>
+</div>
+
+<!-- tabs -->
+<div class="tabs" style="margin-top:20px">
+  <button class="tab-btn active" data-tab="send">送信</button>
+  <button class="tab-btn" data-tab="record">学習</button>
+  <button class="tab-btn" data-tab="manage">コード管理</button>
+  <button class="tab-btn" data-tab="devices">デバイス管理</button>
+  <button class="tab-btn" data-tab="auto">オートメーション</button>
+</div>
+
+<!-- SEND -->
+<div id="panel-send" class="panel active">
+  <p class="section-label" id="send-label">デバイスを選択してください</p>
+  <div id="btn-grid"><p class="empty-state">デバイスを選択してください</p></div>
+</div>
+
+<!-- RECORD -->
+<div id="panel-record" class="panel">
+  <div class="record-form">
+    <p class="section-label">新規コード学習</p>
+
+    <!-- step1: operation category chips -->
+    <div class="field">
+      <label>① 操作カテゴリ</label>
+      <div id="op-cat-chips" class="chip-row"></div>
+    </div>
+
+    <!-- step2: operation select -->
+    <div class="field" id="op-action-field">
+      <label>② 操作</label>
+      <div id="op-action-chips" class="chip-row"></div>
+    </div>
+
+    <!-- custom name (auto-filled, editable) -->
+    <div class="field">
+      <label>コードキー（英語・自動入力）</label>
+      <input id="rec-action" type="text" placeholder="操作を選ぶと自動入力されます" autocomplete="off" spellcheck="false">
+    </div>
+
+    <!-- custom label: only shown for custom input -->
+    <div class="field" id="custom-label-field" style="display:none">
+      <label>ボタン表示名（日本語）</label>
+      <input id="rec-label" type="text" placeholder="例: 電源、音量アップ" autocomplete="off" spellcheck="false">
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn-primary" id="rec-btn"><span>⬤</span> 学習開始</button>
+      <button id="rec-cancel-btn" style="display:none;padding:10px 20px;background:transparent;border:1px solid var(--error);border-radius:var(--radius);color:var(--error);font-family:var(--mono);font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;transition:opacity .15s,transform .08s" onmouseover="this.style.opacity='.75'" onmouseout="this.style.opacity='1'">✕ キャンセル</button>
+    </div>
+    <div id="rec-status" class="status-badge">
+      <span class="pulse"></span>
+      <span id="rec-msg">--</span>
+    </div>
+  </div>
+</div>
+
+<!-- MANAGE codes -->
+<div id="panel-manage" class="panel">
+  <p class="section-label" id="manage-label">デバイスを選択してください</p>
+  <div id="relearn-bar" style="display:none;align-items:center;gap:10px;margin-bottom:12px;max-width:460px">
+    <div id="relearn-status" class="status-badge show" style="flex:1;margin-bottom:0">
+      <span class="pulse"></span>
+      <span id="relearn-msg">--</span>
+    </div>
+    <button id="relearn-cancel-btn" style="padding:8px 16px;background:transparent;border:1px solid var(--error);border-radius:var(--radius);color:var(--error);font-family:var(--mono);font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;flex-shrink:0;transition:opacity .15s" onmouseover="this.style.opacity='.75'" onmouseout="this.style.opacity='1'">✕ キャンセル</button>
+  </div>
+  <div id="code-list" class="code-list"></div>
+</div>
+
+<!-- MANAGE devices -->
+<div id="panel-devices" class="panel">
+  <p class="section-label">登録デバイス</p>
+  <div id="device-list" class="device-list"></div>
+  <div class="add-device-form">
+    <h3>デバイスを追加</h3>
+    <div class="field">
+      <label>ID（英数字）</label>
+      <input id="new-dev-id" type="text" placeholder="例: tv2, bedroom_light" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>表示名</label>
+      <input id="new-dev-name" type="text" placeholder="例: 寝室テレビ" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>カテゴリ</label>
+      <select id="new-dev-cat">
+        <option>映像</option><option>空調</option><option>照明</option>
+        <option>音響</option><option>その他</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>アイコン</label>
+      <div class="icon-grid" id="icon-grid"></div>
+      <input type="hidden" id="new-dev-icon" value="tv">
+    </div>
+    <button class="btn-primary" id="btn-save-device" style="margin-top:4px">追加</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- AUTOMATION -->
+<div id="panel-auto" class="panel">
+  <p class="section-label">登録済みオートメーション</p>
+  <div id="auto-list" class="auto-list">
+    <p class="empty-state" id="auto-empty">オートメーションがありません</p>
+  </div>
+
+  <div class="auto-form">
+    <h3>新規オートメーションを追加</h3>
+
+    <div class="field">
+      <label>名前</label>
+      <input id="auto-name" type="text" placeholder="例: 就寝前に全台オフ" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label>実行時刻</label>
+      <input id="auto-time" type="time" value="23:00">
+    </div>
+
+    <div class="field">
+      <label>実行曜日</label>
+      <div class="days-grid">
+        <button class="day-btn active" data-day="0">日</button>
+        <button class="day-btn active" data-day="1">月</button>
+        <button class="day-btn active" data-day="2">火</button>
+        <button class="day-btn active" data-day="3">水</button>
+        <button class="day-btn active" data-day="4">木</button>
+        <button class="day-btn active" data-day="5">金</button>
+        <button class="day-btn active" data-day="6">土</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>アクション間の遅延</label>
+      <select id="auto-delay">
+        <option value="500">0.5秒</option>
+        <option value="1000" selected>1秒</option>
+        <option value="2000">2秒</option>
+        <option value="3000">3秒</option>
+        <option value="5000">5秒</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>アクション</label>
+      <div class="action-builder">
+        <div class="action-builder-row">
+          <div class="field">
+            <label>デバイス</label>
+            <select id="auto-act-dev"></select>
+          </div>
+          <div class="field">
+            <label>操作</label>
+            <select id="auto-act-op"></select>
+          </div>
+          <button class="btn-sm s-send" id="btn-add-action" style="flex-shrink:0;height:36px;align-self:flex-end">＋ 追加</button>
+        </div>
+        <div class="action-list-preview" id="action-list-preview"></div>
+      </div>
+    </div>
+
+    <button class="btn-primary" id="btn-save-auto">保存</button>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// Constants
+// ================================================================
+const ICONS = {
+  tv:        '📺',
+  aircon:    '❄️',
+  light:     '💡',
+  fan:       '🌀',
+  recorder:  '📼',
+  audio:     '🔊',
+  projector: '📽️',
+  curtain:   '🪟',
+  device:    '📱',
+  game:      '🎮',
+  robot:     '🤖',
+  lamp:      '🪔',
+};
+
+// ================================================================
+// State
+// ================================================================
+let _devices    = [];
+let _activeDevId = null;
+
+// ================================================================
+// Utils
+// ================================================================
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 2400);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  return res.json();
+}
+
+function iconFor(id) { return ICONS[id] || '📱'; }
+
+// ================================================================
+// Device bar
+// ================================================================
+async function loadDevices() {
+  _devices = await api('/api/devices');
+  renderDeviceBar();
+  populateRecSelect();
+  renderDeviceList();
+  if (_activeDevId && _devices.find(d => d.id === _activeDevId)) {
+    // keep selection
+  } else if (_devices.length) {
+    _activeDevId = _devices[0].id;
+  }
+  refreshActivePanel();
+}
+
+function renderDeviceBar() {
+  const bar = document.getElementById('device-bar');
+  const addBtn = document.getElementById('btn-add-device');
+  // clear old chips
+  bar.querySelectorAll('.dev-chip').forEach(el => el.remove());
+
+  _devices.forEach(dev => {
+    const btn = document.createElement('button');
+    btn.className = 'dev-chip' + (dev.id === _activeDevId ? ' active' : '');
+    btn.dataset.id = dev.id;
+    btn.innerHTML = `<span class="dev-icon">${iconFor(dev.icon)}</span><span class="dev-label">${dev.name}</span>`;
+    btn.addEventListener('click', () => {
+      _activeDevId = dev.id;
+      bar.querySelectorAll('.dev-chip').forEach(c => c.classList.toggle('active', c.dataset.id === dev.id));
+      refreshActivePanel();
+    });
+    bar.insertBefore(btn, addBtn);
+  });
+}
+
+function refreshActivePanel() {
+  const active = document.querySelector('.tab-btn.active')?.dataset.tab;
+  if (active === 'send')   loadSendGrid();
+  if (active === 'record') renderOpCats();
+  if (active === 'manage') renderManageCodes();
+}
+
+// ================================================================
+// Tabs
+// ================================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn, .panel').forEach(el => el.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
+    refreshActivePanel();
+    if (btn.dataset.tab === 'devices') renderDeviceList();
+    if (btn.dataset.tab === 'auto') { populateAutoDevSelect(); loadAutoList(); }
+  });
+});
+
+// ================================================================
+// Send panel
+// ================================================================
+// ── grid order persistence ──────────────────────────────────────
+function gridOrderKey(devId) { return `ir_order_${devId}`; }
+function loadOrder(devId) {
+  try { return JSON.parse(localStorage.getItem(gridOrderKey(devId)) || 'null'); } catch { return null; }
+}
+function saveOrder(devId, actions) {
+  localStorage.setItem(gridOrderKey(devId), JSON.stringify(actions));
+}
+
+async function loadSendGrid() {
+  const grid = document.getElementById('btn-grid');
+  const label = document.getElementById('send-label');
+  if (!_activeDevId) {
+    label.textContent = 'デバイスを選択してください';
+    grid.innerHTML = '<p class="empty-state">デバイスを選択してください</p>';
+    return;
+  }
+  const dev = _devices.find(d => d.id === _activeDevId);
+  label.textContent = dev ? `${iconFor(dev.icon)} ${dev.name}` : _activeDevId;
+
+  const rawActions = await api(`/api/devices/${_activeDevId}/codes`);
+  // APIがオブジェクト配列 [{action, label}] または文字列配列 ["key"] を返す両方に対応
+  const actions = Array.isArray(rawActions)
+    ? rawActions.map(a => (typeof a === 'string' ? a : a.action))
+    : [];
+  if (!actions.length) {
+    grid.innerHTML = '<p class="empty-state">学習済みコードがありません</p>';
+    return;
+  }
+
+  // apply saved order, append any new keys at end
+  const saved = loadOrder(_activeDevId) || [];
+  const ordered = [
+    ...saved.filter(k => actions.includes(k)),
+    ...actions.filter(k => !saved.includes(k))
+  ];
+
+  // 日本語ラベルの逆引きマップを作成
+  const opMap   = getOpMap(_activeDevId);
+  const keyLabel = {};
+  Object.values(opMap).forEach(ops => ops.forEach(o => { keyLabel[o.key] = o.label; }));
+
+  grid.innerHTML = ordered.map(a => `
+    <button class="ir-btn" draggable="true" data-action="${a}">
+      <span>${keyLabel[a] || a}</span>
+      <span class="send-icon">${keyLabel[a] ? a : 'tap to send'}</span>
+    </button>`).join('');
+
+  let _dragSrc = null;
+  let _didDrag = false;
+
+  grid.querySelectorAll('.ir-btn').forEach(btn => {
+    // ── click to send ──
+    btn.addEventListener('click', async () => {
+      if (_didDrag) { _didDrag = false; return; }
+      btn.classList.add('flash');
+      setTimeout(() => btn.classList.remove('flash'), 300);
+      const res = await api('/api/send', {
+        method: 'POST',
+        body: JSON.stringify({ device: _activeDevId, action: btn.dataset.action })
+      });
+      toast(res.ok ? `送信: ${btn.dataset.action}` : `エラー: ${res.error}`, res.ok ? 'ok' : 'fail');
+    });
+
+    // ── drag ──
+    btn.addEventListener('dragstart', e => {
+      _dragSrc = btn;
+      _didDrag = false;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', btn.dataset.action);
+      requestAnimationFrame(() => btn.classList.add('dragging'));
+    });
+    btn.addEventListener('dragend', () => {
+      btn.classList.remove('dragging');
+      grid.querySelectorAll('.ir-btn').forEach(b => b.classList.remove('drag-over'));
+    });
+    btn.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (btn !== _dragSrc) {
+        grid.querySelectorAll('.ir-btn').forEach(b => b.classList.remove('drag-over'));
+        btn.classList.add('drag-over');
+      }
+    });
+    btn.addEventListener('dragleave', () => btn.classList.remove('drag-over'));
+    btn.addEventListener('drop', e => {
+      e.preventDefault();
+      btn.classList.remove('drag-over');
+      if (!_dragSrc || _dragSrc === btn) return;
+      _didDrag = true;
+
+      // reorder DOM
+      const btns = [...grid.querySelectorAll('.ir-btn')];
+      const srcIdx  = btns.indexOf(_dragSrc);
+      const destIdx = btns.indexOf(btn);
+      if (srcIdx < destIdx) {
+        btn.after(_dragSrc);
+      } else {
+        btn.before(_dragSrc);
+      }
+
+      // persist new order
+      const newOrder = [...grid.querySelectorAll('.ir-btn')].map(b => b.dataset.action);
+      saveOrder(_activeDevId, newOrder);
+    });
+  });
+}
+
+// ================================================================
+// Operation master  { deviceIcon -> { catLabel -> [ {label, key} ] } }
+// icon キーは devices.json の icon フィールドと対応
+// ================================================================
+const OP_MASTER = {
+  tv: {
+    '電源・入力': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+      { label: '入力切替',       key: 'input' },
+      { label: 'HDMI1',          key: 'hdmi1' },
+      { label: 'HDMI2',          key: 'hdmi2' },
+      { label: 'HDMI3',          key: 'hdmi3' },
+    ],
+    '音量': [
+      { label: '音量アップ',     key: 'vol_up' },
+      { label: '音量ダウン',     key: 'vol_down' },
+      { label: 'ミュート',       key: 'mute' },
+    ],
+    'チャンネル': [
+      { label: 'チャンネルアップ', key: 'ch_up' },
+      { label: 'チャンネルダウン', key: 'ch_down' },
+      { label: '地デジ',         key: 'terrestrial' },
+      { label: 'BS',             key: 'bs' },
+      { label: 'CS',             key: 'cs' },
+    ],
+    '再生操作': [
+      { label: '再生',           key: 'play' },
+      { label: '一時停止',       key: 'pause' },
+      { label: '停止',           key: 'stop' },
+      { label: '早送り',         key: 'ff' },
+      { label: '巻き戻し',       key: 'rew' },
+      { label: '録画',           key: 'rec' },
+    ],
+    'メニュー': [
+      { label: 'メニュー',       key: 'menu' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+      { label: '上',             key: 'up' },
+      { label: '下',             key: 'down' },
+      { label: '左',             key: 'left' },
+      { label: '右',             key: 'right' },
+    ],
+  },
+  aircon: {
+    '電源': [
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+      { label: '電源切替',       key: 'power' },
+    ],
+    '運転モード': [
+      { label: '冷房',           key: 'cool' },
+      { label: '暖房',           key: 'heat' },
+      { label: '除湿',           key: 'dry' },
+      { label: '送風',           key: 'fan' },
+      { label: '自動',           key: 'auto' },
+    ],
+    '温度': [
+      { label: '温度アップ',     key: 'temp_up' },
+      { label: '温度ダウン',     key: 'temp_down' },
+      { label: '16℃',           key: 'temp_16' },
+      { label: '18℃',           key: 'temp_18' },
+      { label: '20℃',           key: 'temp_20' },
+      { label: '22℃',           key: 'temp_22' },
+      { label: '24℃',           key: 'temp_24' },
+      { label: '26℃',           key: 'temp_26' },
+      { label: '28℃',           key: 'temp_28' },
+    ],
+    '風量・風向': [
+      { label: '風量アップ',     key: 'wind_up' },
+      { label: '風量ダウン',     key: 'wind_down' },
+      { label: '自動風量',       key: 'wind_auto' },
+      { label: '風向スイング',   key: 'swing' },
+    ],
+    'タイマー': [
+      { label: 'タイマーオン',   key: 'timer_on' },
+      { label: 'タイマーオフ',   key: 'timer_off' },
+      { label: 'おやすみタイマー', key: 'sleep_timer' },
+    ],
+  },
+  light: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+    ],
+    '明るさ': [
+      { label: '明るく',         key: 'bright_up' },
+      { label: '暗く',           key: 'bright_down' },
+      { label: '全灯',           key: 'full' },
+      { label: '常夜灯',         key: 'night' },
+      { label: '消灯',           key: 'off' },
+    ],
+    '色温度': [
+      { label: '昼光色',         key: 'daylight' },
+      { label: '昼白色',         key: 'neutral' },
+      { label: '電球色',         key: 'warm' },
+      { label: '色温度アップ',   key: 'color_up' },
+      { label: '色温度ダウン',   key: 'color_down' },
+    ],
+    'シーン': [
+      { label: 'くつろぎ',       key: 'relax' },
+      { label: '読書',           key: 'reading' },
+      { label: '食事',           key: 'dining' },
+    ],
+  },
+  fan: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+    ],
+    '風量': [
+      { label: '風量アップ',     key: 'wind_up' },
+      { label: '風量ダウン',     key: 'wind_down' },
+      { label: '弱',             key: 'weak' },
+      { label: '中',             key: 'mid' },
+      { label: '強',             key: 'strong' },
+    ],
+    '首振り・タイマー': [
+      { label: '首振り切替',     key: 'swing' },
+      { label: 'タイマー',       key: 'timer' },
+    ],
+  },
+  recorder: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+    ],
+    '再生操作': [
+      { label: '再生',           key: 'play' },
+      { label: '一時停止',       key: 'pause' },
+      { label: '停止',           key: 'stop' },
+      { label: '早送り',         key: 'ff' },
+      { label: '巻き戻し',       key: 'rew' },
+      { label: '録画',           key: 'rec' },
+      { label: '録画停止',       key: 'rec_stop' },
+    ],
+    'メニュー': [
+      { label: 'メニュー',       key: 'menu' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+      { label: '上',             key: 'up' },
+      { label: '下',             key: 'down' },
+    ],
+  },
+  audio: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+    ],
+    '音量': [
+      { label: '音量アップ',     key: 'vol_up' },
+      { label: '音量ダウン',     key: 'vol_down' },
+      { label: 'ミュート',       key: 'mute' },
+    ],
+    '入力・再生': [
+      { label: '入力切替',       key: 'input' },
+      { label: 'Bluetooth',      key: 'bluetooth' },
+      { label: '光デジタル',     key: 'optical' },
+      { label: 'AUX',            key: 'aux' },
+      { label: '再生/停止',      key: 'play_pause' },
+      { label: '次の曲',         key: 'next' },
+      { label: '前の曲',         key: 'prev' },
+    ],
+  },
+  projector: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+    ],
+    '映像': [
+      { label: '入力切替',       key: 'input' },
+      { label: 'HDMI',           key: 'hdmi' },
+      { label: '台形補正',       key: 'keystone' },
+      { label: 'ズームアップ',   key: 'zoom_in' },
+      { label: 'ズームダウン',   key: 'zoom_out' },
+    ],
+    'メニュー': [
+      { label: 'メニュー',       key: 'menu' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+    ],
+  },
+  curtain: {
+    '操作': [
+      { label: '開く',           key: 'open' },
+      { label: '閉じる',         key: 'close' },
+      { label: '停止',           key: 'stop' },
+      { label: '半開き',         key: 'half' },
+    ],
+  },
+  // どのアイコンにも当てはまらないデバイス用
+  device: {
+    '基本操作': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+      { label: 'メニュー',       key: 'menu' },
+    ],
+  },
+};
+
+// ================================================================
+// Record panel
+// ================================================================
+function populateRecSelect() {
+  renderOpCats();
+}
+
+function getOpMap(devId) {
+  const dev = _devices.find(d => d.id === devId);
+  const icon = dev?.icon || 'device';
+  return OP_MASTER[icon] || OP_MASTER['device'];
+}
+
+let _selCat    = null;
+let _selAction = null;
+
+function renderOpCats() {
+  const devId  = _activeDevId;
+  const opMap  = getOpMap(devId);
+  const cats   = Object.keys(opMap);
+  _selCat      = cats[0] || null;
+  _selAction   = null;
+  document.getElementById('rec-action').value = '';
+
+  const catChips = document.getElementById('op-cat-chips');
+  catChips.innerHTML = cats.map(c =>
+    `<span class="chip${c === _selCat ? ' active' : ''}" data-cat="${c}">${c}</span>`
+  ).join('');
+  catChips.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      catChips.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      chip.classList.add('active');
+      _selCat    = chip.dataset.cat;
+      _selAction = null;
+      document.getElementById('rec-action').value = '';
+      document.getElementById('custom-label-field').style.display = 'none';
+      document.getElementById('rec-label').value = '';
+      renderOpActions(devId, _selCat);
+    });
+  });
+
+  renderOpActions(devId, _selCat);
+}
+
+function renderOpActions(devId, cat) {
+  const opMap   = getOpMap(devId);
+  const actions = cat ? (opMap[cat] || []) : [];
+  const chips   = document.getElementById('op-action-chips');
+
+  // カスタム入力チップを末尾に追加
+  const allActions = [
+    ...actions,
+    { label: 'カスタム入力…', key: '__custom__' }
+  ];
+
+  chips.innerHTML = allActions.map(a =>
+    `<span class="chip" data-key="${a.key}">${a.label}</span>`
+  ).join('');
+
+  chips.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      chips.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      chip.classList.add('active');
+      const key = chip.dataset.key;
+      if (key === '__custom__') {
+        _selAction = null;
+        const inp = document.getElementById('rec-action');
+        inp.value = '';
+        inp.focus();
+        document.getElementById('custom-label-field').style.display = '';
+        document.getElementById('rec-label').value = '';
+      } else {
+        _selAction = key;
+        document.getElementById('rec-action').value = key;
+        document.getElementById('custom-label-field').style.display = 'none';
+        document.getElementById('rec-label').value = '';
+      }
+    });
+  });
+}
+
+let _pollTimer = null;
+function setRecStatus(state, msg) {
+  const el = document.getElementById('rec-status');
+  el.className = `status-badge show ${state}`;
+  document.getElementById('rec-msg').textContent = msg;
+  const cancelBtn = document.getElementById('rec-cancel-btn');
+  cancelBtn.style.setProperty('display', state === 'recording' ? 'inline-flex' : 'none', 'important');
+}
+async function pollRecStatus(onDone) {
+  const res = await api('/api/record/status');
+  setRecStatus(res.state, res.message);
+  if (res.state === 'recording') {
+    _pollTimer = setTimeout(() => pollRecStatus(onDone), 600);
+  } else {
+    document.getElementById('rec-btn').disabled = false;
+    if (res.state === 'done') { toast(res.message, 'ok'); if (onDone) onDone(); }
+    else if (res.state === 'error') toast(res.message, 'fail');
+  }
+}
+
+document.getElementById('rec-cancel-btn').addEventListener('click', async () => {
+  clearTimeout(_pollTimer);
+  const res = await api('/api/record/cancel', { method: 'POST' });
+  if (res.ok) {
+    document.getElementById('rec-btn').disabled = false;
+    document.getElementById('rec-cancel-btn').style.setProperty('display', 'none', 'important');
+    const el = document.getElementById('rec-status');
+    el.className = 'status-badge show error';
+    document.getElementById('rec-msg').textContent = 'キャンセルしました';
+    toast('学習をキャンセルしました', 'fail');
+  } else {
+    toast(res.error || 'キャンセル失敗', 'fail');
+  }
+});
+
+document.getElementById('rec-btn').addEventListener('click', async () => {
+  const devId  = _activeDevId;
+  const action = document.getElementById('rec-action').value.trim();
+  const labelEl = document.getElementById('rec-label');
+  const label  = labelEl && document.getElementById('custom-label-field').style.display !== 'none'
+    ? labelEl.value.trim() : '';
+  if (!devId)   { toast('デバイスを選択してください', 'fail'); return; }
+  if (!action)  { toast('操作を選択または入力してください', 'fail'); return; }
+  document.getElementById('rec-btn').disabled = true;
+  clearTimeout(_pollTimer);
+  const body = { device: devId, action };
+  if (label) body.label = label;
+  const res = await api('/api/record/start', {
+    method: 'POST', body: JSON.stringify(body)
+  });
+  if (!res.ok) { toast(res.error, 'fail'); document.getElementById('rec-btn').disabled = false; return; }
+  setRecStatus('recording', 'リモコンのボタンを押してください...');
+  _pollTimer = setTimeout(() => pollRecStatus(() => { loadSendGrid(); }), 800);
+});
+
+// ================================================================
+// Manage codes panel
+// ================================================================
+let _relTimer = null;
+function setRelStatus(state, msg) {
+  const bar = document.getElementById('relearn-bar');
+  const el  = document.getElementById('relearn-status');
+  bar.style.display = 'flex';
+  el.className = `status-badge show ${state}`;
+  document.getElementById('relearn-msg').textContent = msg;
+}
+
+async function renderManageCodes() {
+  const label = document.getElementById('manage-label');
+  const list  = document.getElementById('code-list');
+  if (!_activeDevId) {
+    label.textContent = 'デバイスを選択してください';
+    list.innerHTML = '<p class="empty-state">デバイスを選択してください</p>';
+    return;
+  }
+  const dev = _devices.find(d => d.id === _activeDevId);
+  label.textContent = dev ? `${iconFor(dev.icon)} ${dev.name}` : _activeDevId;
+
+  const rawActions2 = await api(`/api/devices/${_activeDevId}/codes`);
+  const actions = Array.isArray(rawActions2)
+    ? rawActions2.map(a => (typeof a === 'string' ? a : a.action))
+    : [];
+  if (!actions.length) {
+    list.innerHTML = '<p class="empty-state">学習済みコードがありません</p>';
+    return;
+  }
+  const opMap2   = getOpMap(_activeDevId);
+  const keyLabel2 = {};
+  Object.values(opMap2).forEach(ops => ops.forEach(o => { keyLabel2[o.key] = o.label; }));
+
+  list.innerHTML = actions.map(a => `
+    <div class="code-row" data-action="${a}">
+      <span class="code-row-name">${keyLabel2[a] ? `${keyLabel2[a]}<span style="color:var(--muted);font-size:.7rem;margin-left:6px">${a}</span>` : a}</span>
+      <div class="code-row-actions">
+        <button class="btn-sm s-send"    data-action="${a}">送信</button>
+        <button class="btn-sm s-rename"  data-action="${a}">名前変更</button>
+        <button class="btn-sm s-relearn" data-action="${a}">再学習</button>
+        <button class="btn-sm s-del"     data-action="${a}">削除</button>
+      </div>
+    </div>`).join('');
+
+  list.querySelectorAll('.s-send').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const res = await api('/api/send', { method: 'POST', body: JSON.stringify({ device: _activeDevId, action: btn.dataset.action }) });
+      toast(res.ok ? `送信: ${btn.dataset.action}` : `エラー: ${res.error}`, res.ok ? 'ok' : 'fail');
+    });
+  });
+
+  list.querySelectorAll('.s-rename').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row    = btn.closest('.code-row');
+      const nameEl = row.querySelector('.code-row-name');
+      const oldName = btn.dataset.action;
+      if (row.querySelector('.rename-input')) return;
+      const input = document.createElement('input');
+      input.className = 'rename-input'; input.value = oldName;
+      nameEl.replaceWith(input); input.focus(); input.select();
+      const commit = async () => {
+        const newName = input.value.trim();
+        if (!newName || newName === oldName) { renderManageCodes(); return; }
+        const res = await api(`/api/devices/${_activeDevId}/codes/${encodeURIComponent(oldName)}/rename`, {
+          method: 'POST', body: JSON.stringify({ name: newName })
+        });
+        if (res.ok) { toast(`${oldName} → ${newName}`, 'ok'); renderManageCodes(); loadSendGrid(); }
+        else { toast(res.error, 'fail'); renderManageCodes(); }
+      };
+      input.addEventListener('keydown', e => { if (e.key==='Enter') commit(); if (e.key==='Escape') renderManageCodes(); });
+      input.addEventListener('blur', commit);
+    });
+  });
+
+  list.querySelectorAll('.s-relearn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const action = btn.dataset.action;
+      if (!confirm(`「${action}」を再学習しますか？`)) return;
+      clearTimeout(_relTimer);
+      const res = await api('/api/record/relearn', { method: 'POST', body: JSON.stringify({ device: _activeDevId, action }) });
+      if (!res.ok) { toast(res.error, 'fail'); return; }
+      setRelStatus('recording', `[${action}] リモコンのボタンを押してください...`);
+      _relTimer = setTimeout(() => pollRelearn(() => { renderManageCodes(); loadSendGrid(); }), 800);
+    });
+  });
+
+  list.querySelectorAll('.s-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`「${btn.dataset.action}」を削除しますか？`)) return;
+      const res = await api(`/api/devices/${_activeDevId}/codes/${encodeURIComponent(btn.dataset.action)}`, { method: 'DELETE' });
+      if (res.ok) { toast('削除しました', 'ok'); renderManageCodes(); loadSendGrid(); }
+      else toast(res.error, 'fail');
+    });
+  });
+}
+
+async function pollRelearn(onDone) {
+  const res = await api('/api/record/status');
+  setRelStatus(res.state, res.message);
+  if (res.state === 'recording') {
+    _relTimer = setTimeout(() => pollRelearn(onDone), 600);
+  } else {
+    // 少し待ってからバーを隠す
+    setTimeout(() => { document.getElementById('relearn-bar').style.display = 'none'; }, 2000);
+    if (res.state === 'done') { toast(res.message, 'ok'); if (onDone) onDone(); }
+    else if (res.state === 'error') toast(res.message, 'fail');
+  }
+}
+
+// Relearn cancel button handler
+document.getElementById('relearn-cancel-btn').addEventListener('click', async () => {
+  clearTimeout(_relTimer);
+  const res = await api('/api/record/cancel', { method: 'POST' });
+  if (res.ok) {
+    const el = document.getElementById('relearn-status');
+    el.className = 'status-badge show error';
+    document.getElementById('relearn-msg').textContent = 'キャンセルしました';
+    toast('再学習をキャンセルしました', 'fail');
+    setTimeout(() => { document.getElementById('relearn-bar').style.display = 'none'; }, 2000);
+  } else {
+    toast(res.error || 'キャンセル失敗', 'fail');
+  }
+});
+
+// ================================================================
+// Device manage panel
+// ================================================================
+function renderDeviceList() {
+  const list = document.getElementById('device-list');
+  if (!_devices.length) { list.innerHTML = '<p class="empty-state">デバイスがありません</p>'; return; }
+  list.innerHTML = _devices.map(d => `
+    <div class="device-row">
+      <span class="device-row-icon">${iconFor(d.icon)}</span>
+      <div class="device-row-info">
+        <div class="device-row-name">${d.name}</div>
+        <div class="device-row-cat">${d.category} · ${d.id}</div>
+      </div>
+      <div class="device-row-actions">
+        <button class="btn-sm s-del" data-id="${d.id}">削除</button>
+      </div>
+    </div>`).join('');
+
+  list.querySelectorAll('.s-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dev = _devices.find(d => d.id === btn.dataset.id);
+      if (!confirm(`「${dev?.name}」を削除しますか？\n紐づくコードもすべて削除されます。`)) return;
+      const res = await api(`/api/devices/${btn.dataset.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (_activeDevId === btn.dataset.id) _activeDevId = null;
+        toast('削除しました', 'ok');
+        loadDevices();
+      } else toast(res.error, 'fail');
+    });
+  });
+}
+
+// icon picker
+function buildIconGrid() {
+  const grid = document.getElementById('icon-grid');
+  let selected = 'tv';
+  grid.innerHTML = Object.entries(ICONS).map(([k, v]) =>
+    `<div class="icon-opt${k===selected?' selected':''}" data-key="${k}" title="${k}">${v}</div>`
+  ).join('');
+  grid.querySelectorAll('.icon-opt').forEach(el => {
+    el.addEventListener('click', () => {
+      grid.querySelectorAll('.icon-opt').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+      document.getElementById('new-dev-icon').value = el.dataset.key;
+    });
+  });
+}
+
+document.getElementById('btn-save-device').addEventListener('click', async () => {
+  const id   = document.getElementById('new-dev-id').value.trim();
+  const name = document.getElementById('new-dev-name').value.trim();
+  const cat  = document.getElementById('new-dev-cat').value;
+  const icon = document.getElementById('new-dev-icon').value;
+  if (!id || !name) { toast('IDと名前を入力してください', 'fail'); return; }
+  if (!/^[a-zA-Z0-9_]+$/.test(id)) { toast('IDは英数字・アンダースコアのみ', 'fail'); return; }
+  const res = await api('/api/devices', { method: 'POST', body: JSON.stringify({ id, name, category: cat, icon }) });
+  if (res.ok) {
+    toast(`${name} を追加しました`, 'ok');
+    document.getElementById('new-dev-id').value = '';
+    document.getElementById('new-dev-name').value = '';
+    loadDevices();
+  } else toast(res.error, 'fail');
+});
+
+document.getElementById('btn-add-device').addEventListener('click', () => {
+  document.querySelectorAll('.tab-btn, .panel').forEach(el => el.classList.remove('active'));
+  document.querySelector('[data-tab="devices"]').classList.add('active');
+  document.getElementById('panel-devices').classList.add('active');
+  renderDeviceList();
+  document.getElementById('new-dev-id').focus();
+});
+
+// ================================================================
+// Automation panel
+// ================================================================
+let _autoActions = []; // pending actions for new automation form
+
+// Populate device selector in auto form
+function populateAutoDevSelect() {
+  const sel = document.getElementById('auto-act-dev');
+  sel.innerHTML = _devices.map(d =>
+    `<option value="${d.id}">${iconFor(d.icon)} ${d.name}</option>`
+  ).join('');
+  updateAutoOpSelect();
+}
+
+// Populate operation selector based on selected device
+async function updateAutoOpSelect() {
+  const devId = document.getElementById('auto-act-dev').value;
+  const sel   = document.getElementById('auto-act-op');
+  // fetch registered codes for this device
+  const codes = await api(`/api/devices/${devId}/codes`);
+  const items = Array.isArray(codes) && codes.length && typeof codes[0] === 'string'
+    ? codes.map(a => ({ action: a, label: '' }))
+    : (codes || []);
+  // build opLabel map from opMap
+  const dev   = _devices.find(d => d.id === devId);
+  const opMap = dev ? (getOpMap(devId)) : {};
+  const opLabel = {};
+  Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
+  sel.innerHTML = items.map(({ action }) => {
+    const lbl = opLabel[action] || action;
+    return `<option value="${action}">${lbl}（${action}）</option>`;
+  }).join('') || '<option value="">（コードなし）</option>';
+}
+
+document.getElementById('auto-act-dev').addEventListener('change', updateAutoOpSelect);
+
+// Add action to pending list
+document.getElementById('btn-add-action').addEventListener('click', () => {
+  const devId  = document.getElementById('auto-act-dev').value;
+  const action = document.getElementById('auto-act-op').value;
+  if (!devId || !action) { toast('デバイスと操作を選んでください', 'fail'); return; }
+  const dev    = _devices.find(d => d.id === devId);
+  const opMap  = dev ? getOpMap(devId) : {};
+  const opLabel = {};
+  Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
+  const label  = opLabel[action] || action;
+  _autoActions.push({ device: devId, action, _label: label, _devName: dev?.name || devId });
+  renderActionPreview();
+});
+
+function renderActionPreview() {
+  const el = document.getElementById('action-list-preview');
+  if (!_autoActions.length) { el.innerHTML = ''; return; }
+  el.innerHTML = _autoActions.map((a, i) => `
+    <div class="action-preview-row">
+      <span class="seq">${i + 1}</span>
+      <span>${iconFor(_devices.find(d => d.id === a.device)?.icon || 'device')} ${a._devName} — ${a._label}</span>
+      <button class="btn-remove-action" data-idx="${i}" title="削除">✕</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('.btn-remove-action').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _autoActions.splice(parseInt(btn.dataset.idx), 1);
+      renderActionPreview();
+    });
+  });
+}
+
+// Day selector toggle
+document.querySelectorAll('.day-btn').forEach(btn => {
+  btn.addEventListener('click', () => btn.classList.toggle('active'));
+});
+
+// Save automation
+document.getElementById('btn-save-auto').addEventListener('click', async () => {
+  const name     = document.getElementById('auto-name').value.trim();
+  const time     = document.getElementById('auto-time').value;
+  const delay_ms = parseInt(document.getElementById('auto-delay').value);
+  const days     = [...document.querySelectorAll('.day-btn.active')].map(b => parseInt(b.dataset.day));
+
+  if (!name)              { toast('名前を入力してください', 'fail'); return; }
+  if (!time)              { toast('時刻を設定してください', 'fail'); return; }
+  if (!_autoActions.length) { toast('アクションを1つ以上追加してください', 'fail'); return; }
+
+  const trigger = { type: 'time', time, days };
+  const actions = _autoActions.map(({ device, action }) => ({ device, action }));
+
+  const res = await api('/api/automations', {
+    method: 'POST',
+    body: JSON.stringify({ name, trigger, actions, delay_ms, enabled: true })
+  });
+  if (res.ok) {
+    toast(`「${name}」を保存しました`, 'ok');
+    document.getElementById('auto-name').value = '';
+    document.getElementById('auto-time').value = '23:00';
+    _autoActions = [];
+    renderActionPreview();
+    loadAutoList();
+  } else {
+    toast(res.error || '保存失敗', 'fail');
+  }
+});
+
+// Load and render automation list
+async function loadAutoList() {
+  const list  = await api('/api/automations');
+  const el    = document.getElementById('auto-list');
+  const empty = document.getElementById('auto-empty');
+
+  // remove existing cards (keep empty msg)
+  el.querySelectorAll('.auto-card').forEach(c => c.remove());
+
+  if (!list.length) {
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+  list.forEach(auto => {
+    const trigger = auto.trigger || {};
+    const timeStr = trigger.time || '??:??';
+    const days    = trigger.days;
+    const daysStr = (!days || days.length === 7)
+      ? '毎日'
+      : days.map(d => DAY_LABELS[d]).join('・');
+
+    const actChips = (auto.actions || []).map(a => {
+      const dev = _devices.find(d => d.id === a.device);
+      const opMap = dev ? getOpMap(a.device) : {};
+      const opLabel = {};
+      Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
+      const lbl = opLabel[a.action] || a.action;
+      return `<span class="auto-action-chip">${iconFor(dev?.icon || 'device')} ${dev?.name || a.device} — ${lbl}</span>`;
+    }).join('');
+
+    const card = document.createElement('div');
+    card.className = 'auto-card' + (auto.enabled ? '' : ' disabled');
+    card.dataset.id = auto.id;
+    card.innerHTML = `
+      <div class="auto-card-header">
+        <label class="toggle-switch" title="${auto.enabled ? '無効にする' : '有効にする'}">
+          <input type="checkbox" class="auto-toggle" ${auto.enabled ? 'checked' : ''}>
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="auto-card-name">${auto.name}</span>
+        <span class="auto-card-time">🕐 ${timeStr}</span>
+      </div>
+      <div class="auto-card-days">${daysStr}</div>
+      <div class="auto-card-actions">${actChips || '<span class="auto-action-chip">アクションなし</span>'}</div>
+      <div class="auto-card-btns">
+        <button class="btn-sm s-send btn-run-auto">▶ 今すぐ実行</button>
+        <button class="btn-sm s-del  btn-del-auto">削除</button>
+      </div>
+    `;
+
+    // Toggle enable
+    card.querySelector('.auto-toggle').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      card.classList.toggle('disabled', !enabled);
+      await api(`/api/automations/${auto.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled })
+      });
+      toast(enabled ? '有効にしました' : '無効にしました', 'ok');
+    });
+
+    // Run now
+    card.querySelector('.btn-run-auto').addEventListener('click', async () => {
+      const res = await api(`/api/automations/${auto.id}/run`, { method: 'POST' });
+      toast(res.ok ? `「${auto.name}」を実行中...` : (res.error || '実行失敗'), res.ok ? 'ok' : 'fail');
+    });
+
+    // Delete
+    card.querySelector('.btn-del-auto').addEventListener('click', async () => {
+      if (!confirm(`「${auto.name}」を削除しますか？`)) return;
+      const res = await api(`/api/automations/${auto.id}`, { method: 'DELETE' });
+      if (res.ok) { toast('削除しました', 'ok'); loadAutoList(); }
+      else toast(res.error || '削除失敗', 'fail');
+    });
+
+    el.insertBefore(card, empty);
+  });
+}
+
+// ================================================================
+// Shutdown
+// ================================================================
+document.getElementById('btn-shutdown').addEventListener('click', async () => {
+  if (!confirm('Raspberry Pi をシャットダウンしますか？')) return;
+  await api('/api/shutdown', { method: 'POST' });
+  toast('シャットダウンします...', 'ok');
+});
+
+// ================================================================
+// Export / Import
+// ================================================================
+document.getElementById('btn-import-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = ''; // reset so same file can be re-imported
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch {
+    toast('JSONファイルの読み込みに失敗しました', 'fail');
+    return;
+  }
+  const devCount  = (payload.devices || []).length;
+  const codeCount = Object.keys(payload.codes || {}).length;
+  if (!confirm(`インポートしますか？\nデバイス: ${devCount}件 / コード: ${codeCount}件\n⚠ 現在のデータはすべて上書きされます`)) return;
+  const res = await api('/api/import', { method: 'POST', body: JSON.stringify(payload) });
+  if (res.ok) {
+    toast(`インポート完了: デバイス ${res.devices}件, コード ${res.codes}件`, 'ok');
+    loadDevices();
+  } else {
+    toast(`インポート失敗: ${res.error}`, 'fail');
+  }
+});
+
+
+buildIconGrid();
+loadDevices();
+</script>
+</body>
+</html>
