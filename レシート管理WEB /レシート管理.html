@@ -4117,7 +4117,7 @@ small_category（小カテゴリ）: 居酒屋メニューレベルの一般名�
       "name": "商品名（レシートの表記を省略せず正確に。黒・白・塩・糖などの修飾語も含めること）",
       "middle_category": "中カテゴリ",
       "small_category": "小カテゴリ",
-      "price": 金額(数値)
+      "price": 税込金額(数値、レシートに印字されている個別商品の金額をそのまま。税抜表示レシートの場合は税込換算した金額)
     }
   ]
 }
@@ -4133,7 +4133,7 @@ store_brand（チェーン・ブランド名）の抽出ルール：
 注意：
 - dateが読み取れない場合は今日の日付
 - timeはレシートに購入時刻が記載されている場合のみHH:MM形式で入れる。読み取れない場合はnull
-- 合計金額は割引後の最終合計
+- 合計金額は税・割引をすべて反映した実際の支払い金額（税込み合計）。小計ではなく、レシートに「合計」「お買上金額」「お支払い金額」として印字されている金額
 - 商品名は絶対に省略・短縮しないこと
 - ポイント情報・会員情報・税額明細はitemsに含めない（購入商品のみ）`;
 
@@ -4254,8 +4254,9 @@ function renderResult(data) {
   const dateStr = data.date || '—';
   const timeStr = data.time ? ` ${data.time}` : '';
   document.getElementById('res-date').textContent = dateStr + timeStr;
-  // 合計は items の合計で再計算
-  const calcTotal = (data.items || []).reduce((s, i) => s + (i.price || 0), 0) || data.total || 0;
+  // 合計はr.total（税込）優先、なければitemsの合計
+  const _itemsSum = (data.items || []).reduce((s, i) => s + (i.price || 0), 0);
+  const calcTotal = (data.total && data.total > _itemsSum) ? data.total : (_itemsSum || data.total || 0);
   document.getElementById('res-total').textContent = `¥${calcTotal.toLocaleString()}`;
 
   const ul = document.getElementById('res-items');
@@ -4859,7 +4860,9 @@ async function showDetailFromCal(id) {
 
 // 割り勘考慮の実質負担合計を返す
 function effectiveTotal(r) {
-  const raw = (r.items || []).reduce((s, i) => s + (i.price || 0), 0) || r.total || 0;
+  const itemsSum = (r.items || []).reduce((s, i) => s + (i.price || 0), 0);
+  // r.total（Geminiが返した税込合計）が items 合計より大きい場合（税抜price問題）は r.total を優先
+  const raw = (r.total && r.total > itemsSum) ? r.total : (itemsSum || r.total || 0);
   if (!r.split_enabled) return raw;
   return Math.ceil(raw / (r.split_count || 2));
 }
@@ -4943,7 +4946,8 @@ function _renderDetail() {
   const splitOn = !!r.split_enabled;
   const splitCount = r.split_count || 2;
 
-  const total = (r.items || []).reduce((s, i) => s + (i.price || 0), 0);
+  const itemsSum = (r.items || []).reduce((s, i) => s + (i.price || 0), 0);
+  const total = (r.total && r.total > itemsSum) ? r.total : (itemsSum || r.total || 0);
   const displayTotal = splitOn ? Math.ceil(total / splitCount) : total;
   totalEl.textContent = '¥' + displayTotal.toLocaleString();
 
@@ -5880,6 +5884,7 @@ function showYearlyMonthDetail(records, year, monthIdx) {
   document.getElementById('yearly-month-detail').style.display = 'block';
 
   // カテゴリ別集計（renderStats と同じロジック）
+  const _isIncomeStat = currentStatType === 'income';
   const map = {};
   if (largeDef && largeDef.length > 0) {
     const midIdToLarge = {};
@@ -5889,8 +5894,11 @@ function showYearlyMonthDetail(records, year, monthIdx) {
     monthRecords.forEach(r => {
       const ratio = r.split_enabled ? 1 / (r.split_count || 2) : 1;
       (r.items || []).forEach(item => {
-        const midId = resolveMidId(item);
-        const key = (midId && midIdToLarge[midId]) || '未分類';
+        const isIncomeItem = r.entry_type === 'income';
+        const midId = isIncomeItem ? null : resolveMidId(item);
+        const key = isIncomeItem ? '収入' : ((midId && midIdToLarge[midId]) || '未分類');
+        if (_isIncomeStat && key !== '収入') return;
+        if (!_isIncomeStat && key === '収入') return;
         map[key] = (map[key] || 0) + Math.abs((item.price || 0) * ratio);
       });
     });
@@ -6094,6 +6102,23 @@ function renderStats(records) {
   }
 
   // Phase4: 大カテゴリが設定されている場合は大カテゴリ別集計、なければ中カテゴリ別
+  const isIncomeStat = currentStatType === 'income';
+
+  // 収入モード：item.middle_category（「給与・賞与」等）を直接集計
+  if (isIncomeStat) {
+    const incomeMap = {};
+    records.forEach(r => {
+      const ratio = r.split_enabled ? 1 / (r.split_count || 2) : 1;
+      (r.items || []).forEach(item => {
+        const key = item.middle_category || 'その他収入';
+        incomeMap[key] = (incomeMap[key] || 0) + Math.abs((item.price || 0) * ratio);
+      });
+    });
+    Object.keys(incomeMap).forEach(k => { incomeMap[k] = Math.ceil(incomeMap[k]); });
+    renderBarChart(incomeMap, '収入カテゴリ別', false);
+    return;
+  }
+
   if (largeDef && largeDef.length > 0) {
     const idToMid = new Map(categoryDef.map(m => [m.id, m]));
     // 中カテゴリid → 大カテゴリ名のマップを構築
@@ -6107,14 +6132,13 @@ function renderStats(records) {
     records.forEach(r => {
       const ratio = r.split_enabled ? 1 / (r.split_count || 2) : 1;
       (r.items || []).forEach(item => {
-        // 中カテゴリIDを解決して大カテゴリを特定（ID不一致時は名前でフォールバック）
         const midId = resolveMidId(item);
         const largeName = (midId && midIdToLarge[midId]) || '未分類';
         largeMap[largeName] = (largeMap[largeName] || 0) + Math.abs((item.price || 0) * ratio);
       });
     });
     Object.keys(largeMap).forEach(k => { largeMap[k] = Math.ceil(Math.abs(largeMap[k])); });
-    renderBarChart(largeMap, currentStatType === 'income' ? '大カテゴリ別収入' : '大カテゴリ別支出', false);
+    renderBarChart(largeMap, '大カテゴリ別支出', false);
   } else {
     // largeDef未設定時は従来の中カテゴリ別
     const midMap = {};
@@ -6126,7 +6150,7 @@ function renderStats(records) {
       });
     });
     Object.keys(midMap).forEach(k => { midMap[k] = Math.ceil(Math.abs(midMap[k])); });
-    renderBarChart(midMap, currentStatType === 'income' ? '中カテゴリ別収入' : '中カテゴリ別支出', false);
+    renderBarChart(midMap, isIncomeStat ? '中カテゴリ別収入' : '中カテゴリ別支出', false);
   }
 }
 
@@ -6150,9 +6174,9 @@ function renderChart(map, title, isDrill) {
   const hint = document.getElementById('chart-hint');
   backBtn.classList.toggle('visible', isDrill);
 
-  // 小カテゴリ段階（drillMiddleセット済み）はドリル不可。それ以外はグラフ種別問わず可
+  // 収入モードはドリル不可（大カテゴリのみ）。支出は小カテゴリ段階まで可
   const canDrillFurther = isDrill && drillLarge && !drillMiddle;
-  const canDrill = !isDrill || canDrillFurther;
+  const canDrill = currentStatType !== 'income' && (!isDrill || canDrillFurther);
   hint.style.display = canDrill ? 'block' : 'none';
   hint.textContent = 'タップすると小カテゴリを表示';
 
@@ -6584,8 +6608,17 @@ async function renderStoreReceipts(storeName, records) {
 }
 
 var drillDown = async function(label) {
+  // 収入モードは大カテゴリのみ（中小カテゴリなし）→ドリル不可
+  if (currentStatType === 'income') return;
+
   const all = await dbGetAll('receipts');
-  const records = filterByPeriod(all, currentPeriod);
+  let records = filterByPeriod(all, currentPeriod);
+  // 支出/収入フィルタ（renderStatsと同じ）
+  if (currentStatType === 'income') {
+    records = records.filter(r => r.entry_type === 'income');
+  } else {
+    records = records.filter(r => !r.entry_type || r.entry_type === 'expense');
+  }
 
   // 大カテゴリ → 中カテゴリのドリル
   if (!drillLarge && largeDef && largeDef.length > 0) {
@@ -6604,11 +6637,16 @@ var drillDown = async function(label) {
     records.forEach(r => {
       const ratio = r.split_enabled ? 1 / (r.split_count || 2) : 1;
       (r.items || []).forEach(item => {
-        const midId = resolveMidId(item);
-        const itemLarge = (midId && midIdToLarge[midId]) || '未分類';
+        const isIncomeItem = r.entry_type === 'income';
+        const midId = isIncomeItem ? null : resolveMidId(item);
+        const itemLarge = isIncomeItem ? '収入' : ((midId && midIdToLarge[midId]) || '未分類');
+        if (currentStatType !== 'income' && isIncomeItem) return;
         _largeCheck[itemLarge] = (_largeCheck[itemLarge] || 0) + Math.abs((item.price || 0) * ratio);
         if (itemLarge !== label) return;
-        const midName = resolveMiddleName(item) || 'その他';
+        // 収入アイテムは middle_category を直接中カテゴリ名として使う
+        const midName = isIncomeItem
+          ? (item.middle_category || 'その他収入')
+          : (resolveMiddleName(item) || 'その他');
         midMap[midName] = (midMap[midName] || 0) + Math.abs((item.price || 0) * ratio);
       });
     });
@@ -6748,8 +6786,10 @@ async function renderLargeDrillReceipts(large, midIdToLarge, records) {
   const matched = records
     .map(r => {
       const matchItems = (r.items || []).filter(item => {
-        const midId = resolveMidId(item);
-        const itemLarge = (midId && midIdToLarge[midId]) || '未分類';
+        const isIncomeItem = r.entry_type === 'income';
+        const midId = isIncomeItem ? null : resolveMidId(item);
+        const itemLarge = isIncomeItem ? '収入' : ((midId && midIdToLarge[midId]) || '未分類');
+        if (currentStatType !== 'income' && isIncomeItem) return false;
         return itemLarge === large;
       });
       if (matchItems.length === 0) return null;
@@ -6977,7 +7017,9 @@ function _pushNavState(type) {
 // UIを「純粋に閉じるだけ」の内部関数群（history操作なし）
 // これらをpopstateハンドラとEscから呼ぶ
 function _closeModalInner(id) {
-  document.getElementById(id).classList.remove('open');
+  const el = document.getElementById(id);
+  el.classList.remove('open');
+  if (el.dataset.mode) delete el.dataset.mode;
 }
 function _closeSettingsInner() {
   document.getElementById('settings-modal').classList.remove('open');
@@ -7194,6 +7236,20 @@ openItemEditModal = function(idx) {
 const _origOpenReceiptEditModal_b = openReceiptEditModal;
 openReceiptEditModal = function() {
   _origOpenReceiptEditModal_b();
+  _pushNavState('receipt-edit-modal');
+};
+
+// プレビュー編集モーダルにも pushState を追加
+// （スキャン後の解析結果編集時に closeModal→history.back() と対応させる）
+const _origOpenPreviewItemEdit_b = openPreviewItemEdit;
+openPreviewItemEdit = function(idx) {
+  _origOpenPreviewItemEdit_b(idx);
+  _pushNavState('item-edit-modal');
+};
+
+const _origOpenPreviewReceiptEdit_b = openPreviewReceiptEdit;
+openPreviewReceiptEdit = function() {
+  _origOpenPreviewReceiptEdit_b();
   _pushNavState('receipt-edit-modal');
 };
 
