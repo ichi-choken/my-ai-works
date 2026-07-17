@@ -4135,7 +4135,7 @@ store_brand（チェーン・ブランド名）の抽出ルール：
 - timeはレシートに購入時刻が記載されている場合のみHH:MM形式で入れる。読み取れない場合はnull
 - 合計金額は税・割引をすべて反映した実際の支払い金額（税込み合計）。小計ではなく、レシートに「合計」「お買上金額」「お支払い金額」として印字されている金額
 - 商品名は絶対に省略・短縮しないこと
-- ポイント情報・会員情報・税額明細はitemsに含めない（購入商品のみ）`;
+- ポイント情報・会員情報・税額明細・「合計」「お会計」等の合計行はitemsに含めない（購入商品のみ）`;
 
     const _geminiUrl1 = `https://generativelanguage.googleapis.com/v1beta/models/${localStorage.getItem('gemini_model') || 'gemini-2.5-flash'}:generateContent?key=${apiKey}`;
     const _geminiBody1 = JSON.stringify({
@@ -4188,6 +4188,7 @@ ${prompt}`
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean = text.replace(/```json|```/g, '').trim();
     parsedData = JSON.parse(clean);
+    stripTotalRowFromItems(parsedData);
 
     if (!parsedData.items || parsedData.items.length === 0) {
       parsedData = null;
@@ -4234,6 +4235,28 @@ ${prompt}`
         osc.stop(now + offset + 0.3);
       });
     } catch(e) {}
+  }
+}
+
+// Geminiが「合計」行を商品として items に混入させてしまうケースへの対処。
+// 該当行を items から除外し、その金額を正式な合計として採用する（items の二重計上を防ぐ）。
+function stripTotalRowFromItems(data) {
+  if (!data || !Array.isArray(data.items) || data.items.length === 0) return;
+  const totalNamePattern = /^(合計|合計金額|お会計|お買上金額|お買い上げ金額|お支払い?金額|税込合計|total)$/i;
+  const kept = [];
+  let matchedPrice = null;
+  data.items.forEach(item => {
+    const name = (item && item.name || '').trim();
+    if (totalNamePattern.test(name) && typeof item.price === 'number') {
+      // 複数マッチした場合は金額が大きい方（税込合計である可能性が高い）を採用
+      if (matchedPrice === null || item.price > matchedPrice) matchedPrice = item.price;
+    } else {
+      kept.push(item);
+    }
+  });
+  if (matchedPrice !== null) {
+    data.items = kept;
+    data.total = matchedPrice;
   }
 }
 
@@ -6177,8 +6200,10 @@ function renderChart(map, title, isDrill) {
   // 収入モードはドリル不可（大カテゴリのみ）。支出は小カテゴリ段階まで可
   const canDrillFurther = isDrill && drillLarge && !drillMiddle;
   const canDrill = currentStatType !== 'income' && (!isDrill || canDrillFurther);
-  hint.style.display = canDrill ? 'block' : 'none';
-  hint.textContent = 'タップすると小カテゴリを表示';
+  // 収入モード：ドリルの代わりに、タップで該当レシート一覧を表示（支出の小カテゴリ段階と同じ挙動）
+  const incomeTap = currentStatType === 'income' && currentGroupMode !== 'store' && !isDrill;
+  hint.style.display = (canDrill || incomeTap) ? 'block' : 'none';
+  hint.textContent = canDrill ? 'タップすると小カテゴリを表示' : 'タップすると該当レシートを表示';
 
   destroyChart();
 
@@ -6358,9 +6383,10 @@ function renderChart(map, title, isDrill) {
             }
           }
         },
-      onClick: canDrill ? async (evt, elements) => {
+      onClick: (canDrill || incomeTap) ? async (evt, elements) => {
         if (!elements.length) return;
-        await drillDown(labels[elements[0].index]);
+        if (incomeTap) await renderIncomeCatReceipts(labels[elements[0].index]);
+        else await drillDown(labels[elements[0].index]);
       } : null
       }
     });
@@ -6410,9 +6436,10 @@ function renderChart(map, title, isDrill) {
             grid: { color: cssVar('--border') }
           }
         },
-        onClick: canDrill ? async (evt, elements) => {
+        onClick: (canDrill || incomeTap) ? async (evt, elements) => {
           if (!elements.length) return;
-          await drillDown(labels[elements[0].index]);
+          if (incomeTap) await renderIncomeCatReceipts(labels[elements[0].index]);
+          else await drillDown(labels[elements[0].index]);
         } : null
       }
     });
@@ -6420,6 +6447,9 @@ function renderChart(map, title, isDrill) {
     if (canDrill) {
       canvas.addEventListener('click', _makeMiddleBarHitHandler(labels));
       canvas.addEventListener('touchstart', _makeMiddleBarHitHandler(labels), { passive: true });
+    } else if (incomeTap) {
+      canvas.addEventListener('click', _makeIncomeBarHitHandler(labels));
+      canvas.addEventListener('touchstart', _makeIncomeBarHitHandler(labels), { passive: true });
     }
   }
 }
@@ -6446,6 +6476,88 @@ function _makeMiddleBarHitHandler(labels) {
       }
     }
   };
+}
+
+// 収入グラフ：Y軸ラベル（カテゴリ名）タップ対応
+function _makeIncomeBarHitHandler(labels) {
+  return async function(e) {
+    if (!statsChart) return;
+    const yScale = statsChart.scales.y;
+    if (!yScale) return;
+
+    const rect = statsChart.canvas.getBoundingClientRect();
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const offsetY = clientY - rect.top;
+    const offsetX = clientX - rect.left;
+
+    if (offsetX >= statsChart.chartArea.left) return; // バー側はChart.jsのonClickに任せる
+
+    for (let i = 0; i < labels.length; i++) {
+      const cy = yScale.getPixelForValue(i);
+      if (offsetY >= cy - 18 && offsetY <= cy + 18) {
+        await renderIncomeCatReceipts(labels[i]);
+        return;
+      }
+    }
+  };
+}
+
+// ===== 収入カテゴリ別レシート一覧（支出の小カテゴリ段階と同じ構造） =====
+async function renderIncomeCatReceipts(catName) {
+  const all = await dbGetAll('receipts');
+  const records = filterByPeriod(all, currentPeriod).filter(r => r.entry_type === 'income');
+
+  const matched = records
+    .map(r => {
+      const matchItems = (r.items || []).filter(item => (item.middle_category || 'その他収入') === catName);
+      if (matchItems.length === 0) return null;
+      const ratio = r.split_enabled ? 1 / (r.split_count || 2) : 1;
+      const matchTotal = matchItems.reduce((s, i) => s + Math.abs((i.price || 0) * ratio), 0);
+      return { r, matchItems, matchTotal };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.r.id || 0) - (a.r.id || 0));
+
+  const section = document.getElementById('stats-receipt-list-section');
+  const titleEl = document.getElementById('stats-receipt-list-title');
+  const listEl  = document.getElementById('stats-receipt-list');
+
+  titleEl.textContent = `「${catName}」の収入（${matched.length}件）`;
+  const grandTotal = matched.reduce((s, { matchTotal }) => s + matchTotal, 0);
+  document.getElementById('stats-receipt-list-total').textContent = grandTotal > 0 ? `¥${Math.ceil(grandTotal).toLocaleString()}` : '';
+  listEl.innerHTML = '';
+
+  if (matched.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">該当レシートがありません</div>';
+  } else {
+    matched.forEach(({ r, matchItems, matchTotal }) => {
+      const li = document.createElement('li');
+      li.className = 'history-item';
+      const dateTime = r.date ? (r.time ? `${r.date} ${r.time}` : r.date) : '—';
+      const itemNames = matchItems.map(i => i.name || '').filter(Boolean);
+      const itemLabel = itemNames.length > 0
+        ? (itemNames.length > 3 ? itemNames.slice(0, 3).join('、') + '…' : itemNames.join('、'))
+        : '';
+      li.innerHTML = `
+        <div class="history-left">
+          <div class="history-store">${r.store || catName}</div>
+          <div class="history-date">${dateTime}</div>
+          ${itemLabel ? `<div class="history-date" style="margin-top:3px;color:var(--text-dim);font-size:11px;">${itemLabel}</div>` : ''}
+        </div>
+        <div class="history-right">
+          <div class="history-total">¥${Math.ceil(matchTotal).toLocaleString()}</div>
+          <div class="history-count">${matchItems.length}点</div>
+        </div>
+        <span class="history-chevron">›</span>
+      `;
+      li.addEventListener('click', () => showDetailFromStats(r));
+      listEl.appendChild(li);
+    });
+  }
+
+  section.style.display = 'block';
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ===== 店別グラフ =====
