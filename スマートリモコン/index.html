@@ -1,0 +1,2486 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>スマートリモコン</title>
+<script>
+(function(){
+  var h = window.location.hostname;
+  var isLan = h === 'localhost' || h === '127.0.0.1' ||
+    /^10\./.test(h) ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /\.local$/.test(h);
+  document.title = isLan ? '(家)スマートリモコン' : '(外)スマートリモコン';
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #0e0e0f;
+  --surface: #18181b;
+  --surface2:#1f1f24;
+  --border:  #2a2a30;
+  --accent:  #e8ff47;
+  --accent2: #ff6b35;
+  --text:    #e8e8ea;
+  --muted:   #6b6b78;
+  --success: #4ade80;
+  --error:   #f87171;
+  --radius:  6px;
+  --mono: 'Space Mono', monospace;
+  --sans: 'Noto Sans JP', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  padding-bottom: 60px;
+}
+
+/* ── header ── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+header h1 { font-family: var(--mono); font-size: .95rem; letter-spacing: .1em; color: var(--accent); text-transform: uppercase; }
+header span { font-size: .7rem; color: var(--muted); font-family: var(--mono); }
+
+/* ── device bar ── */
+#device-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  scrollbar-width: none;
+}
+#device-bar::-webkit-scrollbar { display: none; }
+
+.dev-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 14px 10px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dev-chip:hover { color: var(--text); }
+.dev-chip.active { color: var(--accent); border-bottom-color: var(--accent); }
+.dev-chip .dev-icon { font-size: 1.3rem; line-height: 1; }
+.dev-chip .dev-label { font-size: .65rem; font-family: var(--mono); letter-spacing: .04em; }
+
+.dev-chip-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px; height: 38px;
+  margin-left: 6px;
+  flex-shrink: 0;
+  border: 1px dashed var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  align-self: center;
+}
+.dev-chip-add:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── tabs ── */
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin: 20px 20px 20px;
+  background: var(--surface);
+  padding: 3px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  width: fit-content;
+}
+.tab-btn {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: 7px 16px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.tab-btn.active { background: var(--border); color: var(--accent); }
+
+/* ── panels ── */
+.panel { display: none; padding: 0 20px; }
+.panel.active { display: block; }
+.section-label {
+  font-family: var(--mono);
+  font-size: .62rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+/* ── send grid ── */
+#btn-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px 10px;
+  padding: 10px 4px;
+}
+/* 丸ボタン外枠（ラベル込み） */
+.ir-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: center;
+  transition: transform .08s;
+  overflow: visible;
+}
+/* 丸い本体 */
+.ir-btn .btn-circle {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: border-color .15s, box-shadow .15s;
+  overflow: hidden;
+}
+.ir-btn .btn-circle::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity .2s;
+}
+/* アイコン（上段） */
+.ir-btn .btn-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+  position: relative;
+  z-index: 1;
+  color: var(--text);
+  font-family: var(--mono), 'Segoe UI Symbol', 'Noto Sans Symbols', sans-serif;
+  font-variant-emoji: text;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* コードキー（小文字・薄色） */
+.ir-btn .send-icon {
+  display: none;
+  font-size: .5rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  position: relative;
+  z-index: 1;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ラベル（円の下） */
+.ir-btn .btn-label {
+  font-size: .68rem;
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.2;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ir-btn:hover .btn-circle { border-color: var(--accent); }
+.ir-btn:active { transform: scale(.93); }
+.ir-btn.flash .btn-circle::after { opacity: .18; }
+.ir-btn[draggable="true"] { cursor: grab; }
+.ir-btn[draggable="true"]:active { cursor: grabbing; }
+.ir-btn.dragging { opacity: .3; transform: scale(.95); }
+.ir-btn.drag-over .btn-circle {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+  background: #1a1e0a;
+}
+
+/* ── record form ── */
+.record-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  max-width: 400px;
+}
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.field label { font-family: var(--mono); font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.field input, .field select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .85rem;
+  padding: 9px 11px;
+  outline: none;
+  transition: border-color .15s;
+}
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.field input::placeholder { color: var(--muted); }
+.field select option { background: var(--surface); }
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: #0e0e0f;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity .15s, transform .08s;
+}
+.btn-primary:hover { opacity: .88; }
+.btn-primary:active { transform: scale(.97); }
+.btn-primary:disabled { opacity: .35; cursor: not-allowed; }
+
+/* status */
+.status-badge {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: .75rem;
+  display: none;
+  align-items: center;
+  gap: 10px;
+}
+.status-badge.show    { display: flex; }
+.status-badge.recording { background: #1a1a10; border: 1px solid #4a4a10; color: var(--accent); }
+.status-badge.done      { background: #0f1f14; border: 1px solid #1a4a28; color: var(--success); }
+.status-badge.error     { background: #1f0f0f; border: 1px solid #4a1a1a; color: var(--error); }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.recording .pulse { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(.6)} }
+
+/* ── manage list ── */
+.code-list { display: flex; flex-direction: column; gap: 6px; max-width: 460px; }
+.code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.code-row-name { font-family: var(--mono); font-size: .82rem; }
+.code-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ── アイコン表示・ピッカー ── */
+.code-row-icon-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.code-row-icon-preview {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: border-color .15s;
+  user-select: none;
+}
+.code-row-icon-preview:hover { border-color: var(--accent); }
+
+/* アイコンピッカーパネル */
+.icon-picker {
+  display: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  margin-top: 4px;
+}
+.icon-picker.open { display: flex; }
+.icon-picker-item {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  user-select: none;
+  flex-shrink: 0;
+}
+.icon-picker-item:hover { border-color: var(--accent); background: #1a1e0a; }
+.icon-picker-item.selected { border-color: var(--accent); background: #1a1e0a; }
+.icon-picker-custom-input {
+  flex: 1; min-width: 60px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: .85rem;
+  padding: 4px 8px;
+  height: 36px;
+}
+.icon-picker-apply {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: .72rem;
+  font-family: var(--mono);
+  cursor: pointer;
+  height: 36px;
+  white-space: nowrap;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: .64rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: .15s;
+}
+.btn-sm.s-send    { color: var(--text); }
+.btn-sm.s-send:hover    { border-color: var(--accent);  color: var(--accent); }
+.btn-sm.s-rename  { color: var(--muted); }
+.btn-sm.s-rename:hover  { border-color: var(--accent);  color: var(--accent); }
+.btn-sm.s-relearn { color: var(--muted); }
+.btn-sm.s-relearn:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm.s-del     { color: var(--muted); }
+.btn-sm.s-del:hover     { border-color: var(--error);   color: var(--error); }
+
+/* ── operation chips ── */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.chip {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: .8rem;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+  white-space: nowrap;
+}
+.chip:hover  { border-color: var(--accent); color: var(--text); }
+.chip.active { border-color: var(--accent); color: var(--accent); background: #1a1e0a; }
+
+.rename-input {
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .82rem;
+  padding: 3px 8px;
+  outline: none;
+  width: 150px;
+}
+
+/* ── device manage ── */
+.device-list { display: flex; flex-direction: column; gap: 8px; max-width: 460px; margin-bottom: 24px; }
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.device-row-icon { font-size: 1.4rem; flex-shrink: 0; }
+.device-row-info { flex: 1; }
+.device-row-name { font-size: .88rem; font-weight: 500; }
+.device-row-cat  { font-family: var(--mono); font-size: .65rem; color: var(--muted); margin-top: 2px; }
+.device-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.btn-sm.s-up, .btn-sm.s-down { color: var(--muted); padding: 4px 8px; font-size: .85rem; line-height: 1; }
+.btn-sm.s-up:hover, .btn-sm.s-down:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm:disabled { opacity: .3; cursor: default; }
+.btn-sm:disabled:hover { border-color: var(--line); color: var(--muted); }
+
+.add-device-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 400px;
+}
+.add-device-form h3 {
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+/* icon picker */
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.icon-opt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--bg);
+  transition: border-color .15s;
+}
+.icon-opt:hover   { border-color: var(--accent); }
+.icon-opt.selected { border-color: var(--accent); background: #1a1e0a; }
+
+.empty-state { color: var(--muted); font-family: var(--mono); font-size: .78rem; padding: 20px 0; }
+
+/* ── toast ── */
+#toast {
+  position: fixed;
+  bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 18px;
+  font-family: var(--mono);
+  font-size: .75rem;
+  color: var(--text);
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1), opacity .25s;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 200;
+}
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+#toast.ok   { border-color: var(--success); color: var(--success); }
+#toast.fail { border-color: var(--error);   color: var(--error); }
+
+/* ── automation panel ── */
+.auto-list { display: flex; flex-direction: column; gap: 10px; max-width: 560px; margin-bottom: 24px; }
+.auto-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  transition: border-color .15s;
+}
+.auto-card.disabled { opacity: .5; }
+.auto-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.auto-card-name {
+  font-size: .9rem;
+  font-weight: 500;
+  flex: 1;
+}
+.auto-card-time {
+  font-family: var(--mono);
+  font-size: .75rem;
+  color: var(--accent);
+  background: #1a1e0a;
+  border: 1px solid #2d3310;
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.auto-card-days {
+  font-family: var(--mono);
+  font-size: .65rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.auto-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.auto-action-chip {
+  font-family: var(--mono);
+  font-size: .68rem;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--muted);
+  background: var(--bg);
+}
+.auto-card-btns { display: flex; gap: 6px; }
+.toggle-switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 12px; height: 12px;
+  left: 3px; top: 3px;
+  background: var(--muted);
+  border-radius: 50%;
+  transition: transform .2s, background .2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: #1a1e0a; border: 1px solid var(--accent); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(14px); background: var(--accent); }
+
+/* automation form */
+.auto-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 520px;
+}
+.auto-form h3 {
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.days-grid {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.day-btn {
+  width: 34px; height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .7rem;
+  cursor: pointer;
+  transition: .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.day-btn:hover { border-color: var(--accent); color: var(--text); }
+.day-btn.active { border-color: var(--accent); background: #1a1e0a; color: var(--accent); }
+
+.action-builder {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--bg);
+  margin-top: 4px;
+}
+.action-builder-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+.action-builder-row .field { flex: 1; margin-bottom: 0; }
+.action-list-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 10px;
+}
+.action-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: .72rem;
+}
+.action-preview-row span { flex: 1; }
+.action-preview-row .seq { color: var(--muted); font-size: .65rem; }
+.btn-remove-action {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: .8rem;
+  padding: 0 2px;
+  transition: color .15s;
+  flex-shrink: 0;
+}
+.btn-remove-action:hover { color: var(--error); }
+
+/* ── 編集モードトグルボタン ── */
+.btn-edit-toggle {
+  font-family: var(--mono);
+  font-size: .65rem;
+  letter-spacing: .08em;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.btn-edit-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.btn-edit-toggle.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+/* ── 編集モード中のボタン ── */
+#btn-grid.edit-mode .ir-btn { cursor: grab; touch-action: none; }
+#btn-grid.edit-mode .ir-btn .btn-circle {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+/* 削除バッジ */
+.ir-btn .btn-remove {
+  display: none;
+  position: absolute;
+  top: -4px; right: -4px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--error);
+  color: #fff;
+  font-size: .65rem;
+  line-height: 18px;
+  text-align: center;
+  z-index: 10;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+#btn-grid.edit-mode .ir-btn .btn-remove { display: block; }
+
+/* 列数セレクタ */
+#grid-cols-bar {
+  display: none;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: .65rem;
+  color: var(--muted);
+}
+#grid-cols-bar.visible { display: flex; }
+.col-btn {
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .65rem;
+  cursor: pointer;
+  transition: all .15s;
+}
+.col-btn.active { background: var(--border); color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>IR Remote</h1>
+  <span>infrared controller</span>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0">
+    <!-- Export button -->
+    <button id="btn-export" title="エクスポート（レイアウト含む）"
+       style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--muted);font-family:var(--mono);font-size:.85rem;cursor:pointer;transition:.15s"
+       onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">↓</button>
+
+    <!-- Import button -->
+    <label id="btn-import-label" title="インポート"
+       style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--muted);font-family:var(--mono);font-size:.85rem;cursor:pointer;transition:.15s"
+       onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+      ↑
+      <input type="file" id="btn-import-input" accept=".json,application/json" style="display:none">
+    </label>
+
+    <button id="btn-shutdown" title="Raspberry Pi をシャットダウン"
+       style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--muted);font-family:var(--mono);font-size:.9rem;cursor:pointer;transition:.15s"
+       onmouseover="this.style.borderColor='var(--error)';this.style.color='var(--error)'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"/><path d="M6.22 5.22a9 9 0 1 0 11.56 0"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- device bar -->
+<div id="device-bar">
+  <!-- populated by JS -->
+  <button class="dev-chip-add" id="btn-add-device" title="デバイスを追加">＋</button>
+</div>
+
+<!-- tabs -->
+<div class="tabs" style="margin-top:20px">
+  <button class="tab-btn active" data-tab="send">送信</button>
+  <button class="tab-btn" data-tab="record">学習</button>
+  <button class="tab-btn" data-tab="manage">コード管理</button>
+  <button class="tab-btn" data-tab="devices">デバイス管理</button>
+  <button class="tab-btn" data-tab="auto">オートメーション</button>
+</div>
+
+<!-- SEND -->
+<div id="panel-send" class="panel active">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <p class="section-label" id="send-label" style="margin-bottom:0">デバイスを選択してください</p>
+    <button id="btn-edit-mode" class="btn-edit-toggle" style="display:none">編集</button>
+  </div>
+  <div id="grid-cols-bar">
+    <span>列数:</span>
+    <button class="col-btn" data-cols="3">3</button>
+    <button class="col-btn active" data-cols="4">4</button>
+    <button class="col-btn" data-cols="5">5</button>
+  </div>
+  <div id="btn-grid"><p class="empty-state">デバイスを選択してください</p></div>
+</div>
+
+<!-- RECORD -->
+<div id="panel-record" class="panel">
+  <div class="record-form">
+    <p class="section-label">新規コード学習</p>
+
+    <!-- step1: operation category chips -->
+    <div class="field">
+      <label>① 操作カテゴリ</label>
+      <div id="op-cat-chips" class="chip-row"></div>
+    </div>
+
+    <!-- step2: operation select -->
+    <div class="field" id="op-action-field">
+      <label>② 操作</label>
+      <div id="op-action-chips" class="chip-row"></div>
+    </div>
+
+    <!-- custom name (auto-filled, editable) -->
+    <div class="field">
+      <label>コードキー（英語・自動入力）</label>
+      <input id="rec-action" type="text" placeholder="操作を選ぶと自動入力されます" autocomplete="off" spellcheck="false">
+    </div>
+
+    <!-- custom label: only shown for custom input -->
+    <div class="field" id="custom-label-field" style="display:none">
+      <label>ボタン表示名（日本語）</label>
+      <input id="rec-label" type="text" placeholder="例: 電源、音量アップ" autocomplete="off" spellcheck="false">
+    </div>
+
+    <!-- アイコン選択 -->
+    <div class="field" id="rec-icon-field">
+      <label>アイコン</label>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div id="rec-icon-preview" class="code-row-icon-preview" style="width:40px;height:40px;font-size:1.2rem">●</div>
+        <button type="button" id="rec-icon-toggle" class="btn-edit-toggle">選択</button>
+        <span id="rec-icon-hint" style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">操作を選ぶと自動設定されます</span>
+      </div>
+      <div class="icon-picker" id="rec-icon-picker" style="margin-top:8px"></div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn-primary" id="rec-btn"><span>⬤</span> 学習開始</button>
+      <button id="rec-cancel-btn" style="display:none;padding:10px 20px;background:transparent;border:1px solid var(--error);border-radius:var(--radius);color:var(--error);font-family:var(--mono);font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;transition:opacity .15s,transform .08s" onmouseover="this.style.opacity='.75'" onmouseout="this.style.opacity='1'">✕ キャンセル</button>
+    </div>
+    <div id="rec-status" class="status-badge">
+      <span class="pulse"></span>
+      <span id="rec-msg">--</span>
+    </div>
+  </div>
+</div>
+
+<!-- MANAGE codes -->
+<div id="panel-manage" class="panel">
+  <p class="section-label" id="manage-label">デバイスを選択してください</p>
+  <div id="relearn-bar" style="display:none;align-items:center;gap:10px;margin-bottom:12px;max-width:460px">
+    <div id="relearn-status" class="status-badge show" style="flex:1;margin-bottom:0">
+      <span class="pulse"></span>
+      <span id="relearn-msg">--</span>
+    </div>
+    <button id="relearn-cancel-btn" style="padding:8px 16px;background:transparent;border:1px solid var(--error);border-radius:var(--radius);color:var(--error);font-family:var(--mono);font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;flex-shrink:0;transition:opacity .15s" onmouseover="this.style.opacity='.75'" onmouseout="this.style.opacity='1'">✕ キャンセル</button>
+  </div>
+  <div id="code-list" class="code-list"></div>
+</div>
+
+<!-- MANAGE devices -->
+<div id="panel-devices" class="panel">
+  <p class="section-label">登録デバイス</p>
+  <div id="device-list" class="device-list"></div>
+  <div class="add-device-form">
+    <h3>デバイスを追加</h3>
+    <div class="field">
+      <label>ID（英数字）</label>
+      <input id="new-dev-id" type="text" placeholder="例: tv2, bedroom_light" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>表示名</label>
+      <input id="new-dev-name" type="text" placeholder="例: 寝室テレビ" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>カテゴリ</label>
+      <select id="new-dev-cat">
+        <option>映像</option><option>空調</option><option>照明</option>
+        <option>音響</option><option>その他</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>アイコン</label>
+      <div class="icon-grid" id="icon-grid"></div>
+      <input type="hidden" id="new-dev-icon" value="tv">
+    </div>
+    <button class="btn-primary" id="btn-save-device" style="margin-top:4px">追加</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- AUTOMATION -->
+<div id="panel-auto" class="panel">
+  <p class="section-label">登録済みオートメーション</p>
+  <div id="auto-list" class="auto-list">
+    <p class="empty-state" id="auto-empty">オートメーションがありません</p>
+  </div>
+
+  <div class="auto-form">
+    <h3>新規オートメーションを追加</h3>
+
+    <div class="field">
+      <label>名前</label>
+      <input id="auto-name" type="text" placeholder="例: 就寝前に全台オフ" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label>実行時刻</label>
+      <input id="auto-time" type="time" value="23:00">
+    </div>
+
+    <div class="field">
+      <label>実行曜日</label>
+      <div class="days-grid">
+        <button class="day-btn active" data-day="0">日</button>
+        <button class="day-btn active" data-day="1">月</button>
+        <button class="day-btn active" data-day="2">火</button>
+        <button class="day-btn active" data-day="3">水</button>
+        <button class="day-btn active" data-day="4">木</button>
+        <button class="day-btn active" data-day="5">金</button>
+        <button class="day-btn active" data-day="6">土</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>アクション間の遅延</label>
+      <select id="auto-delay">
+        <option value="500">0.5秒</option>
+        <option value="1000" selected>1秒</option>
+        <option value="2000">2秒</option>
+        <option value="3000">3秒</option>
+        <option value="5000">5秒</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>アクション</label>
+      <div class="action-builder">
+        <div class="action-builder-row">
+          <div class="field">
+            <label>デバイス</label>
+            <select id="auto-act-dev"></select>
+          </div>
+          <div class="field">
+            <label>操作</label>
+            <select id="auto-act-op"></select>
+          </div>
+          <button class="btn-sm s-send" id="btn-add-action" style="flex-shrink:0;height:36px;align-self:flex-end">＋ 追加</button>
+        </div>
+        <div class="action-list-preview" id="action-list-preview"></div>
+      </div>
+    </div>
+
+    <button class="btn-primary" id="btn-save-auto">保存</button>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// Constants
+// ================================================================
+const ICONS = {
+  tv:        '📺',
+  aircon:    '❄️',
+  light:     '💡',
+  fan:       '🌀',
+  recorder:  '📼',
+  audio:     '🔊',
+  projector: '📽️',
+  curtain:   '🪟',
+  device:    '📱',
+  game:      '🎮',
+  robot:     '🤖',
+  lamp:      '🪔',
+};
+
+// ================================================================
+// State
+// ================================================================
+let _devices    = [];
+let _activeDevId = null;
+
+// ================================================================
+// Utils
+// ================================================================
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 2400);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  return res.json();
+}
+
+function iconFor(id) { return ICONS[id] || '📱'; }
+
+// ================================================================
+// Device bar
+// ================================================================
+async function loadDevices() {
+  _devices = await api('/api/devices');
+  renderDeviceBar();
+  populateRecSelect();
+  renderDeviceList();
+  if (_activeDevId && _devices.find(d => d.id === _activeDevId)) {
+    // keep selection
+  } else if (_devices.length) {
+    _activeDevId = _devices[0].id;
+    window._activeDevId = _activeDevId;
+  }
+  refreshActivePanel();
+}
+
+function renderDeviceBar() {
+  const bar = document.getElementById('device-bar');
+  const addBtn = document.getElementById('btn-add-device');
+  // clear old chips
+  bar.querySelectorAll('.dev-chip').forEach(el => el.remove());
+
+  _devices.forEach(dev => {
+    const btn = document.createElement('button');
+    btn.className = 'dev-chip' + (dev.id === _activeDevId ? ' active' : '');
+    btn.dataset.id = dev.id;
+    btn.innerHTML = `<span class="dev-icon">${iconFor(dev.icon)}</span><span class="dev-label">${dev.name}</span>`;
+    btn.addEventListener('click', () => {
+      _activeDevId = dev.id;
+      window._activeDevId = dev.id;
+      bar.querySelectorAll('.dev-chip').forEach(c => c.classList.toggle('active', c.dataset.id === dev.id));
+      refreshActivePanel();
+    });
+    bar.insertBefore(btn, addBtn);
+  });
+}
+
+function refreshActivePanel() {
+  const active = document.querySelector('.tab-btn.active')?.dataset.tab;
+  if (active === 'send')   loadSendGrid();
+  if (active === 'record') renderOpCats();
+  if (active === 'manage') renderManageCodes();
+}
+
+// ================================================================
+// Tabs
+// ================================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn, .panel').forEach(el => el.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
+    refreshActivePanel();
+    if (btn.dataset.tab === 'devices') renderDeviceList();
+    if (btn.dataset.tab === 'auto') { populateAutoDevSelect(); loadAutoList(); }
+  });
+});
+
+// ================================================================
+// Send panel
+// ================================================================
+// ── layout persistence (server-side, localStorage as cache) ──────
+
+// _layoutCache: { cols, devices: { [devId]: { order, hidden, icons } } }
+let _layoutCache = null;
+
+async function _ensureLayout() {
+  if (_layoutCache !== null) return _layoutCache;
+  try {
+    _layoutCache = await (await fetch('/api/layout')).json();
+  } catch {
+    _layoutCache = {};
+  }
+  if (!_layoutCache.devices) _layoutCache.devices = {};
+  return _layoutCache;
+}
+
+async function _patchLayout(patch) {
+  _layoutCache = Object.assign(_layoutCache || { devices: {} }, patch);
+  try {
+    await fetch('/api/layout', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch) });
+  } catch (e) {
+    console.warn('layout save failed', e);
+  }
+}
+
+async function loadOrder(devId) {
+  const lyt = await _ensureLayout();
+  return (lyt.devices[devId] || {}).order || null;
+}
+
+async function saveOrder(devId, actions) {
+  const lyt = await _ensureLayout();
+  if (!lyt.devices[devId]) lyt.devices[devId] = {};
+  lyt.devices[devId].order = actions;
+  _patchLayout({ devices: lyt.devices });
+}
+
+async function loadHidden(devId) {
+  const lyt = await _ensureLayout();
+  return (lyt.devices[devId] || {}).hidden || [];
+}
+
+async function saveHidden(devId, hidden) {
+  const lyt = await _ensureLayout();
+  if (!lyt.devices[devId]) lyt.devices[devId] = {};
+  lyt.devices[devId].hidden = hidden;
+  _patchLayout({ devices: lyt.devices });
+}
+
+async function loadIcons(devId) {
+  const lyt = await _ensureLayout();
+  return (lyt.devices[devId] || {}).icons || {};
+}
+
+async function saveIcons(devId, icons) {
+  const lyt = await _ensureLayout();
+  if (!lyt.devices[devId]) lyt.devices[devId] = {};
+  lyt.devices[devId].icons = icons;
+  _patchLayout({ devices: lyt.devices });
+}
+
+async function loadCols() {
+  const lyt = await _ensureLayout();
+  return lyt.cols || localStorage.getItem('ir_grid_cols') || '4';
+}
+
+async function saveCols(n) {
+  const lyt = await _ensureLayout();
+  lyt.cols = String(n);
+  _patchLayout({ cols: String(n) });
+  localStorage.setItem('ir_grid_cols', String(n)); // keep local copy too
+}
+
+async function loadSendGrid() {
+  const grid = document.getElementById('btn-grid');
+  const label = document.getElementById('send-label');
+  if (!_activeDevId) {
+    label.textContent = 'デバイスを選択してください';
+    grid.innerHTML = '<p class="empty-state">デバイスを選択してください</p>';
+    return;
+  }
+  const dev = _devices.find(d => d.id === _activeDevId);
+  label.textContent = dev ? `${iconFor(dev.icon)} ${dev.name}` : _activeDevId;
+
+  const rawActions = await api(`/api/devices/${_activeDevId}/codes`);
+  // APIがオブジェクト配列 [{action, label}] または文字列配列 ["key"] を返す両方に対応
+  const actions = Array.isArray(rawActions)
+    ? rawActions.map(a => (typeof a === 'string' ? a : a.action))
+    : [];
+  // サーバー保存のボタン表示名（labels.json）
+  const srvLabel = {};
+  if (Array.isArray(rawActions)) {
+    rawActions.forEach(a => {
+      if (a && typeof a === 'object' && a.label) srvLabel[a.action] = a.label;
+    });
+  }
+  if (!actions.length) {
+    grid.innerHTML = '<p class="empty-state">学習済みコードがありません</p>';
+    return;
+  }
+
+  // apply saved order, append any new keys at end
+  const saved  = await loadOrder(_activeDevId) || [];
+  const hidden = await loadHidden(_activeDevId);
+  const ordered = [
+    ...saved.filter(k => actions.includes(k) && !hidden.includes(k)),
+    ...actions.filter(k => !saved.includes(k) && !hidden.includes(k))
+  ];
+
+  // 日本語ラベルの逆引きマップを作成
+  const opMap   = getOpMap(_activeDevId);
+  const keyLabel = {};
+  Object.values(opMap).forEach(ops => ops.forEach(o => { keyLabel[o.key] = o.label; }));
+
+  // コードキー → アイコン の対応マップ
+  // \uFE0E = Variation Selector-15: forces text (non-emoji) rendering
+  const T = s => s + '\uFE0E';
+  const POWER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><path d="M12 2v6"/><path d="M6.22 5.22a9 9 0 1 0 11.56 0"/></svg>`;
+  const KEY_ICON = {
+    power: POWER_SVG, power_on: POWER_SVG, power_off: POWER_SVG,
+    vol_up:T('🔊'), vol_down:T('🔉'), mute:T('🔇'),
+    ch_up:'︿', ch_down:'﹀',
+    input:T('⇄'), hdmi1:'H1', hdmi2:'H2', hdmi3:'H3',
+    bs:'BS', cs:'CS', terrestrial:'DTTV',
+    play:T('▶'), pause:'❙❙', stop:'■', rec:'●',
+    ff:T('⏩'), rew:T('⏪'), next:T('⏭'), prev:T('⏮'),
+    up:'︿', down:'﹀', left:'〈', right:'〉', ok:'OK',
+    menu:T('☰'), back:T('↩'), home:'⌂', guide:T('📋'),
+    cool:T('❄'), heat:T('🔥'), dry:'DRY', auto:'AUTO', fan_only:T('💨'),
+    temp_up:'＋', temp_down:'－',
+    speed_up:'＋', speed_down:'－',
+    swing:T('↕'), timer:T('⏱'),
+    on:'ON', off:'OFF',
+  };
+  // サーバー保存のカスタムアイコンをマージ
+  const savedIcons = await loadIcons(_activeDevId);
+  const iconMap = { ...KEY_ICON, ...savedIcons };
+
+  grid.innerHTML = ordered.map(a => {
+    const label = srvLabel[a] || keyLabel[a] || a;
+    const icon  = iconMap[a] || '●';
+    return `<button class="ir-btn" draggable="false" data-action="${a}">
+      <span class="btn-circle">
+        <span class="btn-icon">${icon}</span>
+        <span class="send-icon">${a}</span>
+      </span>
+      <span class="btn-label">${label}</span>
+    </button>`;
+  }).join('');
+
+  let _dragSrc = null;
+  let _didDrag = false;
+
+  grid.querySelectorAll('.ir-btn').forEach(btn => {
+    // ── click to send ──
+    btn.addEventListener('click', async () => {
+      if (_didDrag) { _didDrag = false; return; }
+      btn.classList.add('flash');
+      setTimeout(() => btn.classList.remove('flash'), 300);
+      const res = await api('/api/send', {
+        method: 'POST',
+        body: JSON.stringify({ device: _activeDevId, action: btn.dataset.action })
+      });
+      toast(res.ok ? `送信: ${btn.dataset.action}` : `エラー: ${res.error}`, res.ok ? 'ok' : 'fail');
+    });
+
+    // ── touch drag ──
+    let _touchMoved = false;
+    let _ghost = null;
+
+    btn.addEventListener('touchstart', e => {
+      if (!grid.classList.contains('edit-mode')) return;
+      _dragSrc = btn;
+      _touchMoved = false;
+      _didDrag = false;
+    }, { passive: true });
+
+    btn.addEventListener('touchmove', e => {
+      if (!grid.classList.contains('edit-mode') || !_dragSrc) return;
+      e.preventDefault();
+      _touchMoved = true;
+
+      const touch = e.touches[0];
+
+      // ゴースト作成
+      if (!_ghost) {
+        _ghost = btn.cloneNode(true);
+        _ghost.style.cssText = [
+          'position:fixed', 'pointer-events:none', 'z-index:9999',
+          'opacity:0.7', 'transform:scale(1.08)',
+          'width:' + btn.offsetWidth + 'px',
+          'transition:none'
+        ].join(';');
+        document.body.appendChild(_ghost);
+        btn.classList.add('dragging');
+      }
+
+      // ゴーストをタッチ位置に追従
+      _ghost.style.left = (touch.clientX - btn.offsetWidth / 2) + 'px';
+      _ghost.style.top  = (touch.clientY - btn.offsetHeight / 2) + 'px';
+
+      // 下にある要素を探してdrag-overを付与
+      _ghost.style.display = 'none';
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      _ghost.style.display = '';
+      const target = el ? el.closest('.ir-btn') : null;
+      grid.querySelectorAll('.ir-btn').forEach(b => b.classList.remove('drag-over'));
+      if (target && target !== _dragSrc) target.classList.add('drag-over');
+
+    }, { passive: false });
+
+    btn.addEventListener('touchend', e => {
+      if (_ghost) { _ghost.remove(); _ghost = null; }
+      btn.classList.remove('dragging');
+
+      if (!grid.classList.contains('edit-mode') || !_dragSrc || !_touchMoved) {
+        grid.querySelectorAll('.ir-btn').forEach(b => b.classList.remove('drag-over'));
+        _dragSrc = null;
+        return;
+      }
+
+      const touch = e.changedTouches[0];
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const target = el ? el.closest('.ir-btn') : null;
+      grid.querySelectorAll('.ir-btn').forEach(b => b.classList.remove('drag-over'));
+
+      if (target && target !== _dragSrc) {
+        _didDrag = true;
+        const btns = [...grid.querySelectorAll('.ir-btn')];
+        const srcIdx  = btns.indexOf(_dragSrc);
+        const destIdx = btns.indexOf(target);
+        if (srcIdx < destIdx) target.after(_dragSrc);
+        else target.before(_dragSrc);
+        const newOrder = [...grid.querySelectorAll('.ir-btn')].map(b => b.dataset.action);
+        saveOrder(_activeDevId, newOrder);
+      }
+      _dragSrc = null;
+    }, { passive: true });
+  });
+}
+
+// ================================================================
+// 編集モード
+// ================================================================
+(async function() {
+  const COLS_KEY = 'ir_grid_cols';
+  let _editMode = false;
+
+  // 列数を復元
+  const savedCols = await loadCols();
+  applyGridCols(savedCols);
+  document.querySelectorAll('.col-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.cols === savedCols);
+  });
+
+  function applyGridCols(n) {
+    document.getElementById('btn-grid').style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+  }
+
+  // 列数ボタン
+  document.getElementById('grid-cols-bar').addEventListener('click', e => {
+    const b = e.target.closest('.col-btn');
+    if (!b) return;
+    const n = b.dataset.cols;
+    document.querySelectorAll('.col-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    applyGridCols(n);
+    saveCols(n);
+  });
+
+  // 編集トグルボタン
+  document.getElementById('btn-edit-mode').addEventListener('click', () => {
+    _editMode = !_editMode;
+    const btn  = document.getElementById('btn-edit-mode');
+    const grid = document.getElementById('btn-grid');
+    const bar  = document.getElementById('grid-cols-bar');
+    btn.textContent = _editMode ? '完了' : '編集';
+    btn.classList.toggle('active', _editMode);
+    grid.classList.toggle('edit-mode', _editMode);
+    bar.classList.toggle('visible', _editMode);
+    // draggableはtouch実装では不要
+  });
+
+  // 編集モード中の削除バッジクリック（イベント委譲）
+  document.getElementById('btn-grid').addEventListener('click', async e => {
+    const rmBtn = e.target.closest('.btn-remove');
+    if (!rmBtn || !_editMode) return;
+    e.stopPropagation();
+    const irBtn = rmBtn.closest('.ir-btn');
+    const action = irBtn.dataset.action;
+    if (!irBtn) return;
+    irBtn.remove();
+    // 非表示リストをサーバーに保存
+    const _devId = window._activeDevId || '';
+    const hidden = await loadHidden(_devId);
+    if (!hidden.includes(action)) hidden.push(action);
+    await saveHidden(_devId, hidden);
+    // 順序も更新
+    const newOrder = [...document.getElementById('btn-grid').querySelectorAll('.ir-btn')].map(b => b.dataset.action);
+    saveOrder(_devId, newOrder);
+  });
+
+  // loadSendGrid 完了後に編集ボタン表示・削除バッジ付与
+  const _origLoad = window.loadSendGrid;
+  window.loadSendGrid = async function() {
+    _editMode = false;
+    const editBtn = document.getElementById('btn-edit-mode');
+    const grid    = document.getElementById('btn-grid');
+    const bar     = document.getElementById('grid-cols-bar');
+    editBtn.textContent = '編集';
+    editBtn.classList.remove('active');
+    grid.classList.remove('edit-mode');
+    bar.classList.remove('visible');
+    await _origLoad();
+    // デバイスが選択されているときだけ編集ボタンを表示
+    editBtn.style.display = window._activeDevId ? '' : 'none';
+    // 削除バッジを各ボタンに追加
+    grid.querySelectorAll('.ir-btn').forEach(btn => {
+      if (btn.querySelector('.btn-remove')) return;
+      const rm = document.createElement('button');
+      rm.className = 'btn-remove';
+      rm.textContent = '✕';
+      btn.querySelector('.btn-circle').appendChild(rm);
+    });
+    // 列数を維持
+    const cols = await loadCols();
+    applyGridCols(cols);
+  };
+})();
+
+// ================================================================
+// Operation master  { deviceIcon -> { catLabel -> [ {label, key} ] } }
+// icon キーは devices.json の icon フィールドと対応
+// ================================================================
+const OP_MASTER = {
+  tv: {
+    '電源・入力': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+      { label: '入力切替',       key: 'input' },
+      { label: 'HDMI1',          key: 'hdmi1' },
+      { label: 'HDMI2',          key: 'hdmi2' },
+      { label: 'HDMI3',          key: 'hdmi3' },
+    ],
+    '音量': [
+      { label: '音量アップ',     key: 'vol_up' },
+      { label: '音量ダウン',     key: 'vol_down' },
+      { label: 'ミュート',       key: 'mute' },
+    ],
+    'チャンネル': [
+      { label: 'チャンネルアップ', key: 'ch_up' },
+      { label: 'チャンネルダウン', key: 'ch_down' },
+      { label: '地デジ',         key: 'terrestrial' },
+      { label: 'BS',             key: 'bs' },
+      { label: 'CS',             key: 'cs' },
+    ],
+    '再生操作': [
+      { label: '再生',           key: 'play' },
+      { label: '一時停止',       key: 'pause' },
+      { label: '停止',           key: 'stop' },
+      { label: '早送り',         key: 'ff' },
+      { label: '巻き戻し',       key: 'rew' },
+      { label: '録画',           key: 'rec' },
+    ],
+    'メニュー': [
+      { label: 'メニュー',       key: 'menu' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+      { label: '上',             key: 'up' },
+      { label: '下',             key: 'down' },
+      { label: '左',             key: 'left' },
+      { label: '右',             key: 'right' },
+    ],
+  },
+  aircon: {
+    '電源': [
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+      { label: '電源切替',       key: 'power' },
+    ],
+    '運転モード': [
+      { label: '冷房',           key: 'cool' },
+      { label: '暖房',           key: 'heat' },
+      { label: '除湿',           key: 'dry' },
+      { label: '送風',           key: 'fan' },
+      { label: '自動',           key: 'auto' },
+    ],
+    '温度': [
+      { label: '温度アップ',     key: 'temp_up' },
+      { label: '温度ダウン',     key: 'temp_down' },
+      { label: '16℃',           key: 'temp_16' },
+      { label: '18℃',           key: 'temp_18' },
+      { label: '20℃',           key: 'temp_20' },
+      { label: '22℃',           key: 'temp_22' },
+      { label: '24℃',           key: 'temp_24' },
+      { label: '26℃',           key: 'temp_26' },
+      { label: '28℃',           key: 'temp_28' },
+    ],
+    '風量・風向': [
+      { label: '風量アップ',     key: 'wind_up' },
+      { label: '風量ダウン',     key: 'wind_down' },
+      { label: '自動風量',       key: 'wind_auto' },
+      { label: '風向スイング',   key: 'swing' },
+    ],
+    'タイマー': [
+      { label: 'タイマーオン',   key: 'timer_on' },
+      { label: 'タイマーオフ',   key: 'timer_off' },
+      { label: 'おやすみタイマー', key: 'sleep_timer' },
+    ],
+  },
+  light: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+    ],
+    '明るさ': [
+      { label: '明るく',         key: 'bright_up' },
+      { label: '暗く',           key: 'bright_down' },
+      { label: '全灯',           key: 'full' },
+      { label: '常夜灯',         key: 'night' },
+      { label: '消灯',           key: 'off' },
+    ],
+    '色温度': [
+      { label: '昼光色',         key: 'daylight' },
+      { label: '昼白色',         key: 'neutral' },
+      { label: '電球色',         key: 'warm' },
+      { label: '色温度アップ',   key: 'color_up' },
+      { label: '色温度ダウン',   key: 'color_down' },
+    ],
+    'シーン': [
+      { label: 'くつろぎ',       key: 'relax' },
+      { label: '読書',           key: 'reading' },
+      { label: '食事',           key: 'dining' },
+    ],
+  },
+  fan: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+    ],
+    '風量': [
+      { label: '風量アップ',     key: 'wind_up' },
+      { label: '風量ダウン',     key: 'wind_down' },
+      { label: '弱',             key: 'weak' },
+      { label: '中',             key: 'mid' },
+      { label: '強',             key: 'strong' },
+    ],
+    '首振り・タイマー': [
+      { label: '首振り切替',     key: 'swing' },
+      { label: 'タイマー',       key: 'timer' },
+    ],
+  },
+  recorder: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+    ],
+    '再生操作': [
+      { label: '再生',           key: 'play' },
+      { label: '一時停止',       key: 'pause' },
+      { label: '停止',           key: 'stop' },
+      { label: '早送り',         key: 'ff' },
+      { label: '巻き戻し',       key: 'rew' },
+      { label: '録画',           key: 'rec' },
+      { label: '録画停止',       key: 'rec_stop' },
+    ],
+    'メニュー': [
+      { label: 'メニュー',       key: 'menu' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+      { label: '上',             key: 'up' },
+      { label: '下',             key: 'down' },
+    ],
+  },
+  audio: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+    ],
+    '音量': [
+      { label: '音量アップ',     key: 'vol_up' },
+      { label: '音量ダウン',     key: 'vol_down' },
+      { label: 'ミュート',       key: 'mute' },
+    ],
+    '入力・再生': [
+      { label: '入力切替',       key: 'input' },
+      { label: 'Bluetooth',      key: 'bluetooth' },
+      { label: '光デジタル',     key: 'optical' },
+      { label: 'AUX',            key: 'aux' },
+      { label: '再生/停止',      key: 'play_pause' },
+      { label: '次の曲',         key: 'next' },
+      { label: '前の曲',         key: 'prev' },
+    ],
+  },
+  projector: {
+    '電源': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+    ],
+    '映像': [
+      { label: '入力切替',       key: 'input' },
+      { label: 'HDMI',           key: 'hdmi' },
+      { label: '台形補正',       key: 'keystone' },
+      { label: 'ズームアップ',   key: 'zoom_in' },
+      { label: 'ズームダウン',   key: 'zoom_out' },
+    ],
+    'メニュー': [
+      { label: 'メニュー',       key: 'menu' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+    ],
+  },
+  curtain: {
+    '操作': [
+      { label: '開く',           key: 'open' },
+      { label: '閉じる',         key: 'close' },
+      { label: '停止',           key: 'stop' },
+      { label: '半開き',         key: 'half' },
+    ],
+  },
+  // どのアイコンにも当てはまらないデバイス用
+  device: {
+    '基本操作': [
+      { label: '電源',           key: 'power' },
+      { label: '電源オン',       key: 'power_on' },
+      { label: '電源オフ',       key: 'power_off' },
+      { label: '決定',           key: 'ok' },
+      { label: '戻る',           key: 'back' },
+      { label: 'メニュー',       key: 'menu' },
+    ],
+  },
+};
+
+// ================================================================
+// Record panel
+// ================================================================
+function populateRecSelect() {
+  renderOpCats();
+}
+
+function getOpMap(devId) {
+  const dev = _devices.find(d => d.id === devId);
+  const icon = dev?.icon || 'device';
+  return OP_MASTER[icon] || OP_MASTER['device'];
+}
+
+let _selCat    = null;
+let _selAction = null;
+
+function renderOpCats() {
+  const devId  = _activeDevId;
+  const opMap  = getOpMap(devId);
+  const cats   = Object.keys(opMap);
+  _selCat      = cats[0] || null;
+  _selAction   = null;
+  document.getElementById('rec-action').value = '';
+
+  const catChips = document.getElementById('op-cat-chips');
+  catChips.innerHTML = cats.map(c =>
+    `<span class="chip${c === _selCat ? ' active' : ''}" data-cat="${c}">${c}</span>`
+  ).join('');
+  catChips.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      catChips.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      chip.classList.add('active');
+      _selCat    = chip.dataset.cat;
+      _selAction = null;
+      document.getElementById('rec-action').value = '';
+      document.getElementById('custom-label-field').style.display = 'none';
+      document.getElementById('rec-label').value = '';
+      renderOpActions(devId, _selCat);
+    });
+  });
+
+  renderOpActions(devId, _selCat);
+}
+
+function renderOpActions(devId, cat) {
+  const opMap   = getOpMap(devId);
+  const actions = cat ? (opMap[cat] || []) : [];
+  const chips   = document.getElementById('op-action-chips');
+
+  // カスタム入力チップを末尾に追加
+  const allActions = [
+    ...actions,
+    { label: 'カスタム入力…', key: '__custom__' }
+  ];
+
+  chips.innerHTML = allActions.map(a =>
+    `<span class="chip" data-key="${a.key}">${a.label}</span>`
+  ).join('');
+
+  chips.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      chips.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      chip.classList.add('active');
+      const key = chip.dataset.key;
+      if (key === '__custom__') {
+        _selAction = null;
+        const inp = document.getElementById('rec-action');
+        inp.value = '';
+        inp.focus();
+        document.getElementById('custom-label-field').style.display = '';
+        document.getElementById('rec-label').value = '';
+      } else {
+        _selAction = key;
+        document.getElementById('rec-action').value = key;
+        document.getElementById('custom-label-field').style.display = 'none';
+        document.getElementById('rec-label').value = '';
+      }
+    });
+  });
+}
+
+let _pollTimer = null;
+function setRecStatus(state, msg) {
+  const el = document.getElementById('rec-status');
+  el.className = `status-badge show ${state}`;
+  document.getElementById('rec-msg').textContent = msg;
+  const cancelBtn = document.getElementById('rec-cancel-btn');
+  cancelBtn.style.setProperty('display', state === 'recording' ? 'inline-flex' : 'none', 'important');
+}
+async function pollRecStatus(onDone) {
+  const res = await api('/api/record/status');
+  setRecStatus(res.state, res.message);
+  if (res.state === 'recording') {
+    _pollTimer = setTimeout(() => pollRecStatus(onDone), 600);
+  } else {
+    document.getElementById('rec-btn').disabled = false;
+    if (res.state === 'done') { toast(res.message, 'ok'); if (onDone) onDone(); }
+    else if (res.state === 'error') toast(res.message, 'fail');
+  }
+}
+
+document.getElementById('rec-cancel-btn').addEventListener('click', async () => {
+  clearTimeout(_pollTimer);
+  const res = await api('/api/record/cancel', { method: 'POST' });
+  if (res.ok) {
+    document.getElementById('rec-btn').disabled = false;
+    document.getElementById('rec-cancel-btn').style.setProperty('display', 'none', 'important');
+    const el = document.getElementById('rec-status');
+    el.className = 'status-badge show error';
+    document.getElementById('rec-msg').textContent = 'キャンセルしました';
+    toast('学習をキャンセルしました', 'fail');
+  } else {
+    toast(res.error || 'キャンセル失敗', 'fail');
+  }
+});
+
+document.getElementById('rec-btn').addEventListener('click', async () => {
+  const devId  = _activeDevId;
+  const action = document.getElementById('rec-action').value.trim();
+  const labelEl = document.getElementById('rec-label');
+  const label  = labelEl && document.getElementById('custom-label-field').style.display !== 'none'
+    ? labelEl.value.trim() : '';
+  if (!devId)   { toast('デバイスを選択してください', 'fail'); return; }
+  if (!action)  { toast('操作を選択または入力してください', 'fail'); return; }
+  document.getElementById('rec-btn').disabled = true;
+  clearTimeout(_pollTimer);
+  const body = { device: devId, action };
+  if (label) body.label = label;
+  const res = await api('/api/record/start', {
+    method: 'POST', body: JSON.stringify(body)
+  });
+  if (!res.ok) { toast(res.error, 'fail'); document.getElementById('rec-btn').disabled = false; return; }
+  setRecStatus('recording', 'リモコンのボタンを押してください...');
+  _pollTimer = setTimeout(() => pollRecStatus(async () => {
+    // 学習完了後にアイコンを保存
+    const icon = document.getElementById('rec-icon-preview').textContent.trim();
+    if (icon && icon !== '●') {
+      const icons = await loadIcons(devId);
+      icons[action] = icon;
+      await saveIcons(devId, icons);
+    }
+    loadSendGrid();
+  }), 800);
+});
+
+// ================================================================
+// 学習タブ アイコン選択
+// ================================================================
+(function() {
+  const ICON_PALETTE = [
+    '⏻','🔊','🔉','🔇','︿','﹀','〈','〉','⇄','OK','☰','↩','⌂','📋',
+    '▶','⏸','⏹','⏺','⏩','⏪','⏭','⏮',
+    '❄','🔥','💨','↕','⏱','＋','－','●','★','♪','📡','💡','🌙','☀',
+    'BS','CS','H1','H2','H3','DT','ON','OFF','AUTO','DRY',
+  ];
+  const T2 = s => s + '\uFE0E';
+  const KEY_ICON_REC = {
+    power:T2('⏻'), power_on:T2('⏻'), power_off:T2('⏻'),
+    vol_up:T2('🔊'), vol_down:T2('🔉'), mute:T2('🔇'),
+    ch_up:'︿', ch_down:'﹀',
+    input:T2('⇄'), hdmi1:'H1', hdmi2:'H2', hdmi3:'H3',
+    bs:'BS', cs:'CS', terrestrial:'DTTV',
+    play:T2('▶'), pause:T2('⏸'), stop:T2('⏹'), rec:T2('⏺'),
+    ff:T2('⏩'), rew:T2('⏪'), next:T2('⏭'), prev:T2('⏮'),
+    up:'︿', down:'﹀', left:'〈', right:'〉', ok:'OK',
+    menu:T2('☰'), back:T2('↩'), home:'⌂', guide:T2('📋'),
+    cool:T2('❄'), heat:T2('🔥'), dry:'DRY', auto:'AUTO', fan_only:T2('💨'),
+    temp_up:'＋', temp_down:'－', speed_up:'＋', speed_down:'－',
+    swing:T2('↕'), timer:T2('⏱'), on:'ON', off:'OFF',
+  };
+
+  // パレット初期化
+  const picker = document.getElementById('rec-icon-picker');
+  picker.innerHTML = ICON_PALETTE.map(ic =>
+    `<div class="icon-picker-item" data-icon="${ic}">${ic}</div>`
+  ).join('') +
+  `<input class="icon-picker-custom-input" type="text" placeholder="カスタム絵文字" maxlength="4">
+   <button class="icon-picker-apply">適用</button>`;
+
+  // トグルボタン
+  document.getElementById('rec-icon-toggle').addEventListener('click', () => {
+    picker.classList.toggle('open');
+  });
+
+  // パレット選択
+  picker.querySelectorAll('.icon-picker-item').forEach(item => {
+    item.addEventListener('click', () => {
+      picker.querySelectorAll('.icon-picker-item').forEach(x => x.classList.remove('selected'));
+      item.classList.add('selected');
+      document.getElementById('rec-icon-preview').textContent = item.dataset.icon;
+      document.getElementById('rec-icon-hint').textContent = '';
+      picker.querySelector('.icon-picker-custom-input').value = '';
+      picker.classList.remove('open');
+    });
+  });
+
+  // カスタム適用
+  picker.querySelector('.icon-picker-apply').addEventListener('click', () => {
+    const val = picker.querySelector('.icon-picker-custom-input').value.trim();
+    if (!val) return;
+    document.getElementById('rec-icon-preview').textContent = val;
+    document.getElementById('rec-icon-hint').textContent = '';
+    picker.classList.remove('open');
+  });
+
+  // 操作チップ選択時にアイコンを自動設定
+  // rec-actionの変化を監視
+  const recActionInput = document.getElementById('rec-action');
+  const observer = new MutationObserver(() => {});
+  recActionInput.addEventListener('input', syncIconFromKey);
+
+  // チップ選択のフックは既存コードの後に実行されるよう少し遅らせる
+  document.getElementById('op-action-chips').addEventListener('click', () => {
+    setTimeout(syncIconFromKey, 50);
+  });
+
+  function syncIconFromKey() {
+    const key = document.getElementById('rec-action').value.trim();
+    if (!key) return;
+    const icon = KEY_ICON_REC[key];
+    if (icon) {
+      document.getElementById('rec-icon-preview').textContent = icon;
+      document.getElementById('rec-icon-hint').textContent = `「${key}」に自動設定`;
+      // パレットの選択状態も更新
+      picker.querySelectorAll('.icon-picker-item').forEach(item => {
+        item.classList.toggle('selected', item.dataset.icon === icon);
+      });
+    }
+  }
+})();
+
+// ================================================================
+// Manage codes panel
+// ================================================================
+let _relTimer = null;
+function setRelStatus(state, msg) {
+  const bar = document.getElementById('relearn-bar');
+  const el  = document.getElementById('relearn-status');
+  bar.style.display = 'flex';
+  el.className = `status-badge show ${state}`;
+  document.getElementById('relearn-msg').textContent = msg;
+}
+
+async function renderManageCodes() {
+  const label = document.getElementById('manage-label');
+  const list  = document.getElementById('code-list');
+  if (!_activeDevId) {
+    label.textContent = 'デバイスを選択してください';
+    list.innerHTML = '<p class="empty-state">デバイスを選択してください</p>';
+    return;
+  }
+  const dev = _devices.find(d => d.id === _activeDevId);
+  label.textContent = dev ? `${iconFor(dev.icon)} ${dev.name}` : _activeDevId;
+
+  const rawActions2 = await api(`/api/devices/${_activeDevId}/codes`);
+  const actions = Array.isArray(rawActions2)
+    ? rawActions2.map(a => (typeof a === 'string' ? a : a.action))
+    : [];
+  // サーバー保存のボタン表示名（labels.json）
+  const srvLabel2 = {};
+  if (Array.isArray(rawActions2)) {
+    rawActions2.forEach(a => {
+      if (a && typeof a === 'object' && a.label) srvLabel2[a.action] = a.label;
+    });
+  }
+  // 表示名の決定: サーバー保存 > 操作マスタ > コードキー
+  const dispLabel = a => srvLabel2[a] || keyLabel2[a] || '';
+  if (!actions.length) {
+    list.innerHTML = '<p class="empty-state">学習済みコードがありません</p>';
+    return;
+  }
+  const opMap2   = getOpMap(_activeDevId);
+  const keyLabel2 = {};
+  Object.values(opMap2).forEach(ops => ops.forEach(o => { keyLabel2[o.key] = o.label; }));
+
+  // アイコンマップ（Step1と同じ定義）
+  const T3 = s => s + '\uFE0E';
+  const KEY_ICON2 = {
+    power:T3('⏻'), power_on:T3('⏻'), power_off:T3('⏻'),
+    vol_up:T3('🔊'), vol_down:T3('🔉'), mute:T3('🔇'),
+    ch_up:'︿', ch_down:'﹀',
+    input:T3('⇄'), hdmi1:'H1', hdmi2:'H2', hdmi3:'H3',
+    bs:'BS', cs:'CS', terrestrial:'DTTV',
+    play:T3('▶'), pause:T3('⏸'), stop:T3('⏹'), rec:T3('⏺'),
+    ff:T3('⏩'), rew:T3('⏪'), next:T3('⏭'), prev:T3('⏮'),
+    up:'︿', down:'﹀', left:'〈', right:'〉', ok:'OK',
+    menu:T3('☰'), back:T3('↩'), home:'⌂', guide:T3('📋'),
+    cool:T3('❄'), heat:T3('🔥'), dry:'DRY', auto:'AUTO', fan_only:T3('💨'),
+    temp_up:'＋', temp_down:'－', speed_up:'＋', speed_down:'－',
+    swing:T3('↕'), timer:T3('⏱'), on:'ON', off:'OFF',
+  };
+  const ICON_PALETTE = [
+    '⏻','🔊','🔉','🔇','︿','﹀','〈','〉','⇄','OK','☰','↩','⌂','📋',
+    '▶','⏸','⏹','⏺','⏩','⏪','⏭','⏮',
+    '❄','🔥','💨','↕','⏱','＋','－','●','★','♪','📡','💡','🌙','☀',
+    'BS','CS','H1','H2','H3','DT','ON','OFF','AUTO','DRY',
+  ];
+  const savedIcons2 = await loadIcons(_activeDevId);
+  const iconMap2 = { ...KEY_ICON2, ...savedIcons2 };
+
+  list.innerHTML = actions.map(a => {
+    const currentIcon = iconMap2[a] || '●';
+    return `
+    <div class="code-row" data-action="${a}">
+      <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+        <div class="code-row-icon-wrap">
+          <div class="code-row-icon-preview" data-action="${a}" title="アイコン変更">${currentIcon}</div>
+        </div>
+        <span class="code-row-name">${dispLabel(a) ? `${dispLabel(a)}<span style="color:var(--muted);font-size:.7rem;margin-left:6px">${a}</span>` : a}</span>
+      </div>
+      <div class="code-row-actions">
+        <button class="btn-sm s-send"    data-action="${a}">送信</button>
+        <button class="btn-sm s-rename"  data-action="${a}">名前変更</button>
+        <button class="btn-sm s-relearn" data-action="${a}">再学習</button>
+        <button class="btn-sm s-del"     data-action="${a}">削除</button>
+      </div>
+      <div class="icon-picker" data-action="${a}">
+        ${ICON_PALETTE.map(ic => `<div class="icon-picker-item${ic === currentIcon ? ' selected' : ''}" data-icon="${ic}">${ic}</div>`).join('')}
+        <input class="icon-picker-custom-input" type="text" placeholder="カスタム絵文字・テキスト" maxlength="4">
+        <button class="icon-picker-apply">適用</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // ── アイコンプレビュークリック → ピッカー開閉 ──
+  list.querySelectorAll('.code-row-icon-preview').forEach(preview => {
+    preview.addEventListener('click', () => {
+      const row = preview.closest('.code-row');
+      const picker = row.querySelector('.icon-picker');
+      const isOpen = picker.classList.contains('open');
+      // 他を全部閉じる
+      list.querySelectorAll('.icon-picker').forEach(p => p.classList.remove('open'));
+      if (!isOpen) picker.classList.add('open');
+    });
+  });
+
+  // ── パレットアイテム選択 ──
+  list.querySelectorAll('.icon-picker').forEach(picker => {
+    const action = picker.dataset.action;
+    const preview = list.querySelector(`.code-row-icon-preview[data-action="${action}"]`);
+
+    picker.querySelectorAll('.icon-picker-item').forEach(item => {
+      item.addEventListener('click', async () => {
+        picker.querySelectorAll('.icon-picker-item').forEach(x => x.classList.remove('selected'));
+        item.classList.add('selected');
+        picker.querySelector('.icon-picker-custom-input').value = '';
+        const icon = item.dataset.icon;
+        preview.textContent = icon;
+        picker.classList.remove('open');
+        await saveIcon(action, icon);
+        loadSendGrid();
+      });
+    });
+
+    // ── カスタム入力 → 適用 ──
+    picker.querySelector('.icon-picker-apply').addEventListener('click', async () => {
+      const val = picker.querySelector('.icon-picker-custom-input').value.trim();
+      if (!val) return;
+      preview.textContent = val;
+      picker.classList.remove('open');
+      await saveIcon(action, val);
+      loadSendGrid();
+    });
+  });
+
+  async function saveIcon(action, icon) {
+    const icons = await loadIcons(_activeDevId);
+    icons[action] = icon;
+    await saveIcons(_activeDevId, icons);
+  }
+
+  list.querySelectorAll('.s-send').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const res = await api('/api/send', { method: 'POST', body: JSON.stringify({ device: _activeDevId, action: btn.dataset.action }) });
+      toast(res.ok ? `送信: ${btn.dataset.action}` : `エラー: ${res.error}`, res.ok ? 'ok' : 'fail');
+    });
+  });
+
+  list.querySelectorAll('.s-rename').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row    = btn.closest('.code-row');
+      const nameEl = row.querySelector('.code-row-name');
+      const actionKey = btn.dataset.action;
+      const oldLabel  = dispLabel(actionKey) || actionKey;
+      if (row.querySelector('.rename-input')) return;
+      const input = document.createElement('input');
+      input.className = 'rename-input'; input.value = oldLabel;
+      input.placeholder = 'ボタン表示名（日本語可）';
+      nameEl.replaceWith(input); input.focus(); input.select();
+      let _committed = false;
+      const commit = async () => {
+        if (_committed) return;
+        _committed = true;
+        const newLabel = input.value.trim();
+        if (newLabel === oldLabel) { renderManageCodes(); return; }
+        // コードキー(actionKey)は変更せず、表示名だけを更新する
+        const res = await api(`/api/devices/${_activeDevId}/codes/${encodeURIComponent(actionKey)}/rename`, {
+          method: 'POST', body: JSON.stringify({ label: newLabel })
+        });
+        if (res.ok) { toast(`表示名を変更しました`, 'ok'); renderManageCodes(); loadSendGrid(); }
+        else { toast(res.error, 'fail'); renderManageCodes(); }
+      };
+      input.addEventListener('keydown', e => { if (e.key==='Enter') commit(); if (e.key==='Escape') renderManageCodes(); });
+      input.addEventListener('blur', commit);
+    });
+  });
+
+  list.querySelectorAll('.s-relearn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const action = btn.dataset.action;
+      if (!confirm(`「${action}」を再学習しますか？`)) return;
+      clearTimeout(_relTimer);
+      const res = await api('/api/record/relearn', { method: 'POST', body: JSON.stringify({ device: _activeDevId, action }) });
+      if (!res.ok) { toast(res.error, 'fail'); return; }
+      setRelStatus('recording', `[${action}] リモコンのボタンを押してください...`);
+      _relTimer = setTimeout(() => pollRelearn(() => { renderManageCodes(); loadSendGrid(); }), 800);
+    });
+  });
+
+  list.querySelectorAll('.s-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`「${btn.dataset.action}」を削除しますか？`)) return;
+      const res = await api(`/api/devices/${_activeDevId}/codes/${encodeURIComponent(btn.dataset.action)}`, { method: 'DELETE' });
+      if (res.ok) { toast('削除しました', 'ok'); renderManageCodes(); loadSendGrid(); }
+      else toast(res.error, 'fail');
+    });
+  });
+}
+
+async function pollRelearn(onDone) {
+  const res = await api('/api/record/status');
+  setRelStatus(res.state, res.message);
+  if (res.state === 'recording') {
+    _relTimer = setTimeout(() => pollRelearn(onDone), 600);
+  } else {
+    // 少し待ってからバーを隠す
+    setTimeout(() => { document.getElementById('relearn-bar').style.display = 'none'; }, 2000);
+    if (res.state === 'done') { toast(res.message, 'ok'); if (onDone) onDone(); }
+    else if (res.state === 'error') toast(res.message, 'fail');
+  }
+}
+
+// Relearn cancel button handler
+document.getElementById('relearn-cancel-btn').addEventListener('click', async () => {
+  clearTimeout(_relTimer);
+  const res = await api('/api/record/cancel', { method: 'POST' });
+  if (res.ok) {
+    const el = document.getElementById('relearn-status');
+    el.className = 'status-badge show error';
+    document.getElementById('relearn-msg').textContent = 'キャンセルしました';
+    toast('再学習をキャンセルしました', 'fail');
+    setTimeout(() => { document.getElementById('relearn-bar').style.display = 'none'; }, 2000);
+  } else {
+    toast(res.error || 'キャンセル失敗', 'fail');
+  }
+});
+
+// ================================================================
+// Device manage panel
+// ================================================================
+function renderDeviceList() {
+  const list = document.getElementById('device-list');
+  if (!_devices.length) { list.innerHTML = '<p class="empty-state">デバイスがありません</p>'; return; }
+  list.innerHTML = _devices.map((d, i) => `
+    <div class="device-row">
+      <span class="device-row-icon">${iconFor(d.icon)}</span>
+      <div class="device-row-info">
+        <div class="device-row-name">${d.name}</div>
+        <div class="device-row-cat">${d.category} · ${d.id}</div>
+      </div>
+      <div class="device-row-actions">
+        <button class="btn-sm s-up"   data-id="${d.id}" title="上へ" ${i === 0 ? 'disabled' : ''}>︿</button>
+        <button class="btn-sm s-down" data-id="${d.id}" title="下へ" ${i === _devices.length - 1 ? 'disabled' : ''}>﹀</button>
+        <button class="btn-sm s-rename" data-id="${d.id}">名前変更</button>
+        <button class="btn-sm s-del" data-id="${d.id}">削除</button>
+      </div>
+    </div>`).join('');
+
+  // ── 並び順の変更（上へ / 下へ） ──
+  const moveDevice = async (devId, delta) => {
+    const idx = _devices.findIndex(d => d.id === devId);
+    const to  = idx + delta;
+    if (idx < 0 || to < 0 || to >= _devices.length) return;
+    // 楽観的に並び替えて即座に再描画
+    const moved = _devices.splice(idx, 1)[0];
+    _devices.splice(to, 0, moved);
+    renderDeviceBar();
+    renderDeviceList();
+    const res = await api('/api/devices/reorder', {
+      method: 'POST', body: JSON.stringify({ order: _devices.map(d => d.id) })
+    });
+    if (!res.ok) {
+      toast(res.error || '並び替えに失敗しました', 'fail');
+      loadDevices();   // サーバー側の状態に戻す
+    }
+  };
+  list.querySelectorAll('.s-up').forEach(btn => {
+    btn.addEventListener('click', () => moveDevice(btn.dataset.id, -1));
+  });
+  list.querySelectorAll('.s-down').forEach(btn => {
+    btn.addEventListener('click', () => moveDevice(btn.dataset.id, +1));
+  });
+
+  // ── デバイス表示名の変更（IDは変更しない） ──
+  list.querySelectorAll('.device-row-actions .s-rename').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row    = btn.closest('.device-row');
+      const nameEl = row.querySelector('.device-row-name');
+      const devId  = btn.dataset.id;
+      const dev    = _devices.find(d => d.id === devId);
+      if (!dev || row.querySelector('.rename-input')) return;
+      const oldName = dev.name;
+      const input = document.createElement('input');
+      input.className = 'rename-input';
+      input.value = oldName;
+      input.placeholder = 'デバイス表示名';
+      nameEl.replaceWith(input);
+      input.focus(); input.select();
+      let _committed = false;
+      const commit = async () => {
+        if (_committed) return;
+        _committed = true;
+        const newName = input.value.trim();
+        if (!newName || newName === oldName) { renderDeviceList(); return; }
+        const res = await api(`/api/devices/${encodeURIComponent(devId)}`, {
+          method: 'PUT', body: JSON.stringify({ name: newName })
+        });
+        if (res.ok) {
+          toast(`${oldName} → ${newName}`, 'ok');
+          loadDevices();          // 上部のデバイスチップも更新
+        } else {
+          toast(res.error || '変更に失敗しました', 'fail');
+          renderDeviceList();
+        }
+      };
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter')  commit();
+        if (e.key === 'Escape') { _committed = true; renderDeviceList(); }
+      });
+      input.addEventListener('blur', commit);
+    });
+  });
+
+  list.querySelectorAll('.s-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dev = _devices.find(d => d.id === btn.dataset.id);
+      if (!confirm(`「${dev?.name}」を削除しますか？\n紐づくコードもすべて削除されます。`)) return;
+      const res = await api(`/api/devices/${btn.dataset.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (_activeDevId === btn.dataset.id) _activeDevId = null;
+        toast('削除しました', 'ok');
+        loadDevices();
+      } else toast(res.error, 'fail');
+    });
+  });
+}
+
+// icon picker
+function buildIconGrid() {
+  const grid = document.getElementById('icon-grid');
+  let selected = 'tv';
+  grid.innerHTML = Object.entries(ICONS).map(([k, v]) =>
+    `<div class="icon-opt${k===selected?' selected':''}" data-key="${k}" title="${k}">${v}</div>`
+  ).join('');
+  grid.querySelectorAll('.icon-opt').forEach(el => {
+    el.addEventListener('click', () => {
+      grid.querySelectorAll('.icon-opt').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+      document.getElementById('new-dev-icon').value = el.dataset.key;
+    });
+  });
+}
+
+document.getElementById('btn-save-device').addEventListener('click', async () => {
+  const id   = document.getElementById('new-dev-id').value.trim();
+  const name = document.getElementById('new-dev-name').value.trim();
+  const cat  = document.getElementById('new-dev-cat').value;
+  const icon = document.getElementById('new-dev-icon').value;
+  if (!id || !name) { toast('IDと名前を入力してください', 'fail'); return; }
+  if (!/^[a-zA-Z0-9_]+$/.test(id)) { toast('IDは英数字・アンダースコアのみ', 'fail'); return; }
+  const res = await api('/api/devices', { method: 'POST', body: JSON.stringify({ id, name, category: cat, icon }) });
+  if (res.ok) {
+    toast(`${name} を追加しました`, 'ok');
+    document.getElementById('new-dev-id').value = '';
+    document.getElementById('new-dev-name').value = '';
+    loadDevices();
+  } else toast(res.error, 'fail');
+});
+
+document.getElementById('btn-add-device').addEventListener('click', () => {
+  document.querySelectorAll('.tab-btn, .panel').forEach(el => el.classList.remove('active'));
+  document.querySelector('[data-tab="devices"]').classList.add('active');
+  document.getElementById('panel-devices').classList.add('active');
+  renderDeviceList();
+  document.getElementById('new-dev-id').focus();
+});
+
+// ================================================================
+// Automation panel
+// ================================================================
+let _autoActions = []; // pending actions for new automation form
+
+// Populate device selector in auto form
+function populateAutoDevSelect() {
+  const sel = document.getElementById('auto-act-dev');
+  sel.innerHTML = _devices.map(d =>
+    `<option value="${d.id}">${iconFor(d.icon)} ${d.name}</option>`
+  ).join('');
+  updateAutoOpSelect();
+}
+
+// Populate operation selector based on selected device
+async function updateAutoOpSelect() {
+  const devId = document.getElementById('auto-act-dev').value;
+  const sel   = document.getElementById('auto-act-op');
+  // fetch registered codes for this device
+  const codes = await api(`/api/devices/${devId}/codes`);
+  const items = Array.isArray(codes) && codes.length && typeof codes[0] === 'string'
+    ? codes.map(a => ({ action: a, label: '' }))
+    : (codes || []);
+  // build opLabel map from opMap
+  const dev   = _devices.find(d => d.id === devId);
+  const opMap = dev ? (getOpMap(devId)) : {};
+  const opLabel = {};
+  Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
+  sel.innerHTML = items.map(({ action }) => {
+    const lbl = opLabel[action] || action;
+    return `<option value="${action}">${lbl}（${action}）</option>`;
+  }).join('') || '<option value="">（コードなし）</option>';
+}
+
+document.getElementById('auto-act-dev').addEventListener('change', updateAutoOpSelect);
+
+// Add action to pending list
+document.getElementById('btn-add-action').addEventListener('click', () => {
+  const devId  = document.getElementById('auto-act-dev').value;
+  const action = document.getElementById('auto-act-op').value;
+  if (!devId || !action) { toast('デバイスと操作を選んでください', 'fail'); return; }
+  const dev    = _devices.find(d => d.id === devId);
+  const opMap  = dev ? getOpMap(devId) : {};
+  const opLabel = {};
+  Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
+  const label  = opLabel[action] || action;
+  _autoActions.push({ device: devId, action, _label: label, _devName: dev?.name || devId });
+  renderActionPreview();
+});
+
+function renderActionPreview() {
+  const el = document.getElementById('action-list-preview');
+  if (!_autoActions.length) { el.innerHTML = ''; return; }
+  el.innerHTML = _autoActions.map((a, i) => `
+    <div class="action-preview-row">
+      <span class="seq">${i + 1}</span>
+      <span>${iconFor(_devices.find(d => d.id === a.device)?.icon || 'device')} ${a._devName} — ${a._label}</span>
+      <button class="btn-remove-action" data-idx="${i}" title="削除">✕</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('.btn-remove-action').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _autoActions.splice(parseInt(btn.dataset.idx), 1);
+      renderActionPreview();
+    });
+  });
+}
+
+// Day selector toggle
+document.querySelectorAll('.day-btn').forEach(btn => {
+  btn.addEventListener('click', () => btn.classList.toggle('active'));
+});
+
+// Save automation
+document.getElementById('btn-save-auto').addEventListener('click', async () => {
+  const name     = document.getElementById('auto-name').value.trim();
+  const time     = document.getElementById('auto-time').value;
+  const delay_ms = parseInt(document.getElementById('auto-delay').value);
+  const days     = [...document.querySelectorAll('.day-btn.active')].map(b => parseInt(b.dataset.day));
+
+  if (!name)              { toast('名前を入力してください', 'fail'); return; }
+  if (!time)              { toast('時刻を設定してください', 'fail'); return; }
+  if (!_autoActions.length) { toast('アクションを1つ以上追加してください', 'fail'); return; }
+
+  const trigger = { type: 'time', time, days };
+  const actions = _autoActions.map(({ device, action }) => ({ device, action }));
+
+  const res = await api('/api/automations', {
+    method: 'POST',
+    body: JSON.stringify({ name, trigger, actions, delay_ms, enabled: true })
+  });
+  if (res.ok) {
+    toast(`「${name}」を保存しました`, 'ok');
+    document.getElementById('auto-name').value = '';
+    document.getElementById('auto-time').value = '23:00';
+    _autoActions = [];
+    renderActionPreview();
+    loadAutoList();
+  } else {
+    toast(res.error || '保存失敗', 'fail');
+  }
+});
+
+// Load and render automation list
+async function loadAutoList() {
+  const list  = await api('/api/automations');
+  const el    = document.getElementById('auto-list');
+  const empty = document.getElementById('auto-empty');
+
+  // remove existing cards (keep empty msg)
+  el.querySelectorAll('.auto-card').forEach(c => c.remove());
+
+  if (!list.length) {
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+  list.forEach(auto => {
+    const trigger = auto.trigger || {};
+    const timeStr = trigger.time || '??:??';
+    const days    = trigger.days;
+    const daysStr = (!days || days.length === 7)
+      ? '毎日'
+      : days.map(d => DAY_LABELS[d]).join('・');
+
+    const actChips = (auto.actions || []).map(a => {
+      const dev = _devices.find(d => d.id === a.device);
+      const opMap = dev ? getOpMap(a.device) : {};
+      const opLabel = {};
+      Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
+      const lbl = opLabel[a.action] || a.action;
+      return `<span class="auto-action-chip">${iconFor(dev?.icon || 'device')} ${dev?.name || a.device} — ${lbl}</span>`;
+    }).join('');
+
+    const card = document.createElement('div');
+    card.className = 'auto-card' + (auto.enabled ? '' : ' disabled');
+    card.dataset.id = auto.id;
+    card.innerHTML = `
+      <div class="auto-card-header">
+        <label class="toggle-switch" title="${auto.enabled ? '無効にする' : '有効にする'}">
+          <input type="checkbox" class="auto-toggle" ${auto.enabled ? 'checked' : ''}>
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="auto-card-name">${auto.name}</span>
+        <span class="auto-card-time">🕐 ${timeStr}</span>
+      </div>
+      <div class="auto-card-days">${daysStr}</div>
+      <div class="auto-card-actions">${actChips || '<span class="auto-action-chip">アクションなし</span>'}</div>
+      <div class="auto-card-btns">
+        <button class="btn-sm s-send btn-run-auto">▶ 今すぐ実行</button>
+        <button class="btn-sm s-del  btn-del-auto">削除</button>
+      </div>
+    `;
+
+    // Toggle enable
+    card.querySelector('.auto-toggle').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      card.classList.toggle('disabled', !enabled);
+      await api(`/api/automations/${auto.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled })
+      });
+      toast(enabled ? '有効にしました' : '無効にしました', 'ok');
+    });
+
+    // Run now
+    card.querySelector('.btn-run-auto').addEventListener('click', async () => {
+      const res = await api(`/api/automations/${auto.id}/run`, { method: 'POST' });
+      toast(res.ok ? `「${auto.name}」を実行中...` : (res.error || '実行失敗'), res.ok ? 'ok' : 'fail');
+    });
+
+    // Delete
+    card.querySelector('.btn-del-auto').addEventListener('click', async () => {
+      if (!confirm(`「${auto.name}」を削除しますか？`)) return;
+      const res = await api(`/api/automations/${auto.id}`, { method: 'DELETE' });
+      if (res.ok) { toast('削除しました', 'ok'); loadAutoList(); }
+      else toast(res.error || '削除失敗', 'fail');
+    });
+
+    el.insertBefore(card, empty);
+  });
+}
+
+// ================================================================
+// Shutdown
+// ================================================================
+document.getElementById('btn-shutdown').addEventListener('click', async () => {
+  if (!confirm('Raspberry Pi をシャットダウンしますか？')) return;
+  await api('/api/shutdown', { method: 'POST' });
+  toast('シャットダウンします...', 'ok');
+});
+
+// ================================================================
+// Export / Import
+// ================================================================
+
+// ── Export: サーバーデータ + localStorageレイアウトを1ファイルに ──
+document.getElementById('btn-export').addEventListener('click', async () => {
+  // サーバーからデバイス・コードを取得
+  let serverPayload;
+  try {
+    const res = await fetch('/api/export');
+    serverPayload = await res.json();
+  } catch (e) {
+    toast('エクスポート失敗: サーバーに接続できません', 'fail');
+    return;
+  }
+
+  // サーバーからレイアウト情報を取得（serverPayload.layoutに既に含まれている場合はそれを使用）
+  const fullPayload = { ...serverPayload };
+  if (!fullPayload.layout) {
+    try {
+      fullPayload.layout = await (await fetch('/api/layout')).json();
+    } catch { fullPayload.layout = {}; }
+  }
+
+  // ダウンロード
+  const blob = new Blob([JSON.stringify(fullPayload, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'irremote_backup.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('エクスポートしました（レイアウト含む）', 'ok');
+});
+
+// ── Import ──
+document.getElementById('btn-import-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = ''; // reset so same file can be re-imported
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch {
+    toast('JSONファイルの読み込みに失敗しました', 'fail');
+    return;
+  }
+  const devCount  = (payload.devices || []).length;
+  const codeCount = Object.keys(payload.codes || {}).length;
+  const hasLayout = !!(payload.layout);
+  const layoutNote = hasLayout ? '\nレイアウト: あり（ボタン順・列数も復元）' : '\nレイアウト: なし';
+  if (!confirm(`インポートしますか？\nデバイス: ${devCount}件 / コード: ${codeCount}件${layoutNote}\n⚠ 現在のデータはすべて上書きされます`)) return;
+
+  // サーバーにデバイス・コードをインポート
+  const serverPayload = { version: payload.version, devices: payload.devices, codes: payload.codes };
+  const res = await api('/api/import', { method: 'POST', body: JSON.stringify(serverPayload) });
+  if (!res.ok) {
+    toast(`インポート失敗: ${res.error}`, 'fail');
+    return;
+  }
+
+  // レイアウトはサーバー側で /api/import 経由で既に復元済み
+
+  // レイアウトキャッシュをリセット（次回アクセス時にサーバーから再取得）
+  _layoutCache = null;
+  toast(`インポート完了: デバイス ${res.devices}件, コード ${res.codes}件${hasLayout ? ' + レイアウト' : ''}`, 'ok');
+  loadDevices();
+});
+
+
+buildIconGrid();
+loadDevices();
+</script>
+</body>
+</html>
