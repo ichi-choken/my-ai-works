@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RasPi Cam — Live</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Noto+Sans+JP:wght@300;400&display=swap');
+
+  :root {
+    --bg:        #080c0f;
+    --panel:     #0d1318;
+    --border:    #1a2a1f;
+    --green:     #00e87a;
+    --green-dim: #00612e;
+    --red:       #ff3c3c;
+    --amber:     #f5a623;
+    --text:      #c8d8c8;
+    --text-dim:  #4a6a52;
+    --mono:      'Share Tech Mono', monospace;
+    --sans:      'Noto Sans JP', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,232,122,0.015) 2px,
+      rgba(0,232,122,0.015) 4px
+    );
+  }
+
+  header {
+    width: 100%; max-width: 860px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 14px; margin-bottom: 28px;
+  }
+
+  .logo { display: flex; align-items: baseline; gap: 10px; }
+  .logo-mark {
+    font-size: 11px; letter-spacing: 0.3em; color: var(--green);
+    text-transform: uppercase; border: 1px solid var(--green-dim); padding: 3px 8px;
+  }
+  .logo-title {
+    font-family: var(--sans); font-weight: 300; font-size: 18px;
+    letter-spacing: 0.1em; color: var(--text);
+  }
+
+  .status-badge { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.15em; color: var(--text-dim); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); transition: background 0.4s; }
+  .dot.live  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.8s infinite; }
+  .dot.error { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+  .dot.wake  { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  .frame-wrap {
+    width: 100%; max-width: 860px;
+    background: var(--panel); border: 1px solid var(--border);
+    position: relative; overflow: hidden;
+  }
+  .frame-wrap::before, .frame-wrap::after {
+    content: ''; position: absolute; width: 20px; height: 20px; z-index: 10; pointer-events: none;
+  }
+  .frame-wrap::before { top:0; left:0; border-top: 2px solid var(--green); border-left: 2px solid var(--green); }
+  .frame-wrap::after  { bottom:0; right:0; border-bottom: 2px solid var(--green); border-right: 2px solid var(--green); }
+
+  #stream-img {
+    width: 100%; display: block; aspect-ratio: 4/3; object-fit: cover;
+    transition: filter 0.3s;
+  }
+  #stream-img.dim { filter: brightness(0.2) blur(2px); }
+
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: rgba(8,12,15,0.85); transition: opacity 0.4s; z-index: 5;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .spinner {
+    width: 36px; height: 36px;
+    border: 2px solid var(--green-dim); border-top-color: var(--green);
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  .spinner.amber { border-color: #3a2a00; border-top-color: var(--amber); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #overlay-msg  { font-size: 12px; letter-spacing: 0.2em; color: var(--text-dim); }
+  #overlay-sub  { font-size: 11px; color: #2a4a32; }
+  #wake-progress { width: 160px; height: 2px; background: #1a2a1f; margin-top: 4px; }
+  #wake-bar { height: 100%; width: 0%; background: var(--amber); transition: width 0.3s; }
+
+  .info-bar {
+    width: 100%; max-width: 860px;
+    display: flex; flex-wrap: wrap;
+    border: 1px solid var(--border); border-top: none; margin-bottom: 28px;
+  }
+  .info-cell {
+    flex: 1 1 140px; padding: 10px 16px;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .info-cell:last-child { border-right: none; }
+  .info-label { font-size: 9px; letter-spacing: 0.3em; color: var(--text-dim); text-transform: uppercase; }
+  .info-value { font-size: 14px; color: var(--green); }
+
+  .controls { width: 100%; max-width: 860px; display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  .btn {
+    flex: 1 1 120px; padding: 11px 20px;
+    background: transparent; border: 1px solid var(--green-dim);
+    color: var(--green); font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.2em; text-transform: uppercase; cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+  .btn:hover { background: rgba(0,232,122,0.08); border-color: var(--green); box-shadow: 0 0 14px rgba(0,232,122,0.15); }
+  .btn:active { transform: scale(0.97); }
+  .btn.danger { border-color: #3a1a1a; color: var(--red); }
+  .btn.danger:hover { background: rgba(255,60,60,0.08); border-color: var(--red); box-shadow: 0 0 14px rgba(255,60,60,0.15); }
+
+  .log-wrap { width: 100%; max-width: 860px; }
+  .log-title { font-size: 9px; letter-spacing: 0.35em; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px; }
+  #log-box {
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 12px 16px; height: 120px; overflow-y: auto;
+    font-size: 11px; line-height: 1.9; color: var(--text-dim);
+    scrollbar-width: thin; scrollbar-color: var(--green-dim) transparent;
+  }
+  #log-box .entry-green { color: var(--green); }
+  #log-box .entry-red   { color: var(--red); }
+  #log-box .entry-amber { color: var(--amber); }
+  #log-box .ts { color: #2a4a32; margin-right: 10px; }
+
+  .rec {
+    position: absolute; top: 12px; left: 12px; z-index: 8;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; letter-spacing: 0.2em; color: var(--red);
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .rec.show { opacity: 1; }
+  .rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 6px var(--red); animation: pulse 1s infinite; }
+
+  .fs-btn {
+    position: absolute; top: 12px; right: 12px; z-index: 8;
+    background: rgba(8,12,15,0.6); border: 1px solid var(--green-dim);
+    color: var(--green); font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.15em; padding: 5px 10px; cursor: pointer; transition: background 0.2s;
+  }
+  .fs-btn:hover { background: rgba(0,232,122,0.12); }
+
+  footer { margin-top: 32px; font-size: 10px; letter-spacing: 0.2em; color: var(--text-dim); text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-mark">CAM</span>
+    <span class="logo-title">RasPi Live View</span>
+  </div>
+  <div class="status-badge">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">CONNECTING</span>
+  </div>
+</header>
+
+<div class="frame-wrap" id="frame-wrap">
+  <div class="rec" id="rec-badge"><div class="rec-dot"></div>REC</div>
+  <button class="fs-btn" onclick="toggleFullscreen()">⛶ FULL</button>
+  <canvas id="stream-img" class="dim"></canvas>
+  <div id="overlay">
+    <div class="spinner" id="spinner"></div>
+    <div id="overlay-msg">CAMERA WAKING UP</div>
+    <div id="overlay-sub">カメラを起動しています...</div>
+    <div id="wake-progress"><div id="wake-bar"></div></div>
+  </div>
+</div>
+
+<div class="info-bar">
+  <div class="info-cell">
+    <span class="info-label">Host</span>
+    <span class="info-value" id="info-host">--</span>
+  </div>
+  <div class="info-cell">
+    <span class="info-label">Port</span>
+    <span class="info-value" id="info-port">--</span>
+  </div>
+  <div class="info-cell">
+    <span class="info-label">Camera</span>
+    <span class="info-value" id="info-cam">--</span>
+  </div>
+  <div class="info-cell">
+    <span class="info-label">Uptime</span>
+    <span class="info-value" id="info-uptime">--:--:--</span>
+  </div>
+  <div class="info-cell">
+    <span class="info-label">Sessions</span>
+    <span class="info-value" id="info-sessions">--</span>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="btn" onclick="reconnect()">↺ RECONNECT</button>
+  <button class="btn" onclick="doSnapshot()">⬡ SNAPSHOT</button>
+  <button class="btn" onclick="rotateLeft()">↶ ROTATE</button>
+  <button class="btn danger" onclick="stopStream()">■ STOP</button>
+  <button class="btn danger" onclick="doShutdown()">⏻ SHUTDOWN</button>
+</div>
+
+<div class="log-wrap">
+  <div class="log-title">System Log</div>
+  <div id="log-box"></div>
+</div>
+
+<footer>RasPi Camera Server @ <span id="footer-host"></span></footer>
+
+<script>
+  const _origin = window.location.origin;
+  const _host   = window.location.hostname;
+  const _port   = window.location.port;
+
+  document.getElementById('info-host').textContent   = _host;
+  document.getElementById('info-port').textContent   = _port || '80';
+  document.getElementById('footer-host').textContent = _host + ':' + (_port || '80');
+
+  // ── 接続元に応じてタブのタイトルを切り替える ──────────
+  function isLanHost(h) {
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
+    if (h.endsWith('.local')) return true;                 // mDNS (raspberrypi.local など)
+    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return false;                                   // IP以外のホスト名は外扱い
+    const a = +m[1], b = +m[2];
+    if (a === 10) return true;                              // 10.0.0.0/8
+    if (a === 192 && b === 168) return true;                // 192.168.0.0/16
+    if (a === 172 && b >= 16 && b <= 31) return true;       // 172.16.0.0/12
+    return false;                                           // 100.64〜100.127 (Tailscale) 等は外
+  }
+
+  document.title = (isLanHost(_host) ? '(家)' : '(外)') + 'カメラ';
+
+  const canvas     = document.getElementById('stream-img');
+  const ctx        = canvas.getContext('2d');
+  const overlay    = document.getElementById('overlay');
+  const overlayMsg = document.getElementById('overlay-msg');
+  const overlaySub = document.getElementById('overlay-sub');
+  const spinner    = document.getElementById('spinner');
+  const wakeBar    = document.getElementById('wake-bar');
+  const dot        = document.getElementById('status-dot');
+  const statusTxt  = document.getElementById('status-text');
+  const recBadge   = document.getElementById('rec-badge');
+  const infoCam    = document.getElementById('info-sessions');  // Sessions欄
+
+  let sid          = null;   // サーバーから発行されたセッションID
+  let stopped      = false;
+  let firstFrame   = true;
+  let cameraReady  = false;
+  let startTime    = null;
+  let uptimeTimer  = null;
+  let wakeInterval = null;
+  let wakeProgress = 0;
+  let pollTimer    = null;
+  let pingTimer    = null;
+  let rotation     = 270;   // 0, 90, 180, 270（初期値=左90度回転）
+
+  // ── ログ ────────────────────────────────────────────
+  function addLog(msg, type = '') {
+    const el  = document.getElementById('log-box');
+    const now = new Date().toLocaleTimeString('ja-JP', {hour12: false});
+    const div = document.createElement('div');
+    div.innerHTML = `<span class="ts">[${now}]</span>`
+                  + `<span class="${type ? 'entry-' + type : ''}">${msg}</span>`;
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setStatus(state) {
+    dot.className = 'dot ' + state;
+    statusTxt.textContent = {
+      live: 'LIVE', error: 'ERROR',
+      wake: 'WAKING', stopped: 'STOPPED', connecting: 'CONNECTING',
+    }[state] || state.toUpperCase();
+  }
+
+  // ── ウェイクアニメ ───────────────────────────────────
+  function startWakeAnim() {
+    wakeProgress = 0;
+    wakeBar.style.width = '0%';
+    spinner.className = 'spinner amber';
+    spinner.style.display = '';
+    overlayMsg.textContent = 'CAMERA WAKING UP';
+    overlaySub.textContent = 'カメラを起動しています...';
+    overlay.classList.remove('hidden');
+    canvas.classList.add('dim');
+    recBadge.classList.remove('show');
+    setStatus('wake');
+    clearInterval(wakeInterval);
+    wakeInterval = setInterval(() => {
+      wakeProgress = Math.min(wakeProgress + 2, 90);
+      wakeBar.style.width = wakeProgress + '%';
+    }, 60);
+  }
+
+  function finishWakeAnim() {
+    clearInterval(wakeInterval);
+    wakeBar.style.width = '100%';
+  }
+
+  function startUptime() {
+    startTime = Date.now();
+    clearInterval(uptimeTimer);
+    uptimeTimer = setInterval(() => {
+      const s   = Math.floor((Date.now() - startTime) / 1000);
+      const h   = String(Math.floor(s / 3600)).padStart(2, '0');
+      const m   = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+      const sec = String(s % 60).padStart(2, '0');
+      document.getElementById('info-uptime').textContent = `${h}:${m}:${sec}`;
+    }, 1000);
+  }
+
+  // ── SSE ─────────────────────────────────────────────
+  function listenEvents() {
+    const es = new EventSource(_origin + '/events');
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        const wasReady = cameraReady;
+        cameraReady = !!d.ready;
+        document.getElementById('info-cam').textContent = d.running ? 'ON' : 'OFF';
+
+        if (cameraReady && !wasReady && !stopped) {
+          addLog('カメラ準備完了 — ストリーム開始', 'green');
+          clearTimeout(pollTimer);
+          // sid がまだなければ少し待ってからリトライ
+          if (sid) {
+            drawSnapshot();
+          } else {
+            addLog('sid待ち — 500ms後にリトライ', 'amber');
+            setTimeout(() => { if (!stopped && sid) drawSnapshot(); }, 500);
+          }
+        }
+        if (!d.running && !stopped) {
+          cameraReady = false;
+        }
+      } catch {}
+    };
+    es.onerror = () => { es.close(); setTimeout(listenEvents, 3000); };
+  }
+
+  // ── ステータスポーリング ──────────────────────────────
+  function pollStatus() {
+    fetch(_origin + '/status')
+      .then(r => r.json())
+      .then(d => {
+        document.getElementById('info-cam').textContent      = d.running ? 'ON' : 'OFF';
+        document.getElementById('info-sessions').textContent = d.sessions;
+      })
+      .catch(() => {});
+    setTimeout(pollStatus, 3000);
+  }
+
+  // ── ハートビート ─────────────────────────────────────
+  // SESSION_TIMEOUT(20秒) の半分以下の間隔で送る
+  // タブ非アクティブ時のタイマー抑制(~1秒精度)を考慮しても余裕あり
+  const PING_INTERVAL = 4000;
+
+  function startPing() {
+    clearInterval(pingTimer);
+    pingTimer = setInterval(async () => {
+      if (!sid || stopped) return;
+      try {
+        const r = await fetch(_origin + '/ping?sid=' + sid);
+        const d = await r.json();
+        if (d.reconnect) {
+          // サーバーにセッションが残っていない → 再接続
+          addLog('セッション切れ — 再接続', 'amber');
+          connect();
+        }
+      } catch {}
+    }, PING_INTERVAL);
+  }
+
+  // ── スナップショットポーリング ──────────────────────
+  function drawSnapshot() {
+    if (stopped) return;
+    fetch(_origin + '/snapshot?_t=' + Date.now())
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          const w = img.naturalWidth  || 640;
+          const h = img.naturalHeight || 480;
+          const rotated = rotation % 180 !== 0;
+          canvas.width  = rotated ? h : w;
+          canvas.height = rotated ? w : h;
+          ctx.save();
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.rotate(rotation * Math.PI / 180);
+          ctx.drawImage(img, -w / 2, -h / 2);
+          ctx.restore();
+          URL.revokeObjectURL(url);
+
+          if (firstFrame) {
+            firstFrame = false;
+            finishWakeAnim();
+            setTimeout(() => {
+              overlay.classList.add('hidden');
+              canvas.classList.remove('dim');
+              spinner.className = 'spinner';
+            }, 300);
+            setStatus('live');
+            recBadge.classList.add('show');
+            startUptime();
+            addLog('ストリーム表示中', 'green');
+          }
+          pollTimer = setTimeout(drawSnapshot, 1000);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); onSnapError(); };
+        img.src = url;
+      })
+      .catch(err => {
+        addLog('snapshot失敗: ' + err.message, 'red');
+        onSnapError();
+      });
+  }
+
+  function onSnapError() {
+    if (stopped) return;
+    if (!firstFrame) {
+      setStatus('error');
+      overlayMsg.textContent = 'STREAM ERROR — RETRYING';
+      overlaySub.textContent = '再接続中...';
+      overlay.classList.remove('hidden');
+      canvas.classList.add('dim');
+      recBadge.classList.remove('show');
+      clearInterval(uptimeTimer);
+      firstFrame = true;
+    }
+    // 初回フレーム待ちは短くリトライ、それ以外は1秒
+    pollTimer = setTimeout(drawSnapshot, firstFrame ? 300 : 1000);
+  }
+
+  // ── 接続 ─────────────────────────────────────────────
+  let connecting = false;  // 多重接続防止フラグ
+
+  async function connect() {
+    if (stopped || connecting) return;
+    connecting = true;
+
+    // 既存セッションを破棄
+    clearInterval(pingTimer);
+    if (sid) {
+      fetch(_origin + '/disconnect?sid=' + sid).catch(() => {});
+      sid = null;
+    }
+
+    firstFrame  = true;
+    cameraReady = false;
+    clearTimeout(pollTimer);
+    addLog('接続中...', 'amber');
+    startWakeAnim();
+
+    try {
+      const r = await fetch(_origin + '/connect');
+      const d = await r.json();
+      sid = d.sid;
+      addLog('セッション開始 ' + sid.slice(0, 8), '');
+      fetch(_origin + '/ping?sid=' + sid).catch(() => {});
+      startPing();
+      // rpicam-jpeg方式はすぐ撮影可能なので直接開始
+      cameraReady = true;
+      drawSnapshot();
+    } catch {
+      addLog('接続失敗 — 3秒後に再試行', 'red');
+      setTimeout(connect, 3000);
+    } finally {
+      connecting = false;
+    }
+  }
+
+  // ── ボタン ───────────────────────────────────────────
+  function reconnect() {
+    stopped = false;
+    clearInterval(uptimeTimer);
+    document.getElementById('info-uptime').textContent = '--:--:--';
+    addLog('手動で再接続', 'amber');
+    connect();
+  }
+
+  function stopStream() {
+    stopped = true;
+    clearTimeout(pollTimer);
+    clearInterval(pingTimer);
+    clearInterval(wakeInterval);
+    clearInterval(uptimeTimer);
+    if (sid) {
+      fetch(_origin + '/disconnect?sid=' + sid).catch(() => {});
+      sid = null;
+    }
+    setStatus('stopped');
+    overlay.classList.remove('hidden');
+    overlayMsg.textContent = 'STREAM STOPPED';
+    overlaySub.textContent = 'RECONNECT で再開';
+    spinner.style.display  = 'none';
+    canvas.classList.add('dim');
+    recBadge.classList.remove('show');
+    addLog('ストリーム停止', 'amber');
+  }
+
+  function doSnapshot() {
+    addLog('スナップショット取得...', 'green');
+    window.open(_origin + '/snapshot?_t=' + Date.now(), '_blank');
+  }
+
+  function doShutdown() {
+    if (!confirm('Raspberry Pi をシャットダウンしますか？')) return;
+    stopStream();
+    addLog('シャットダウン中...', 'red');
+    overlayMsg.textContent = 'SHUTTING DOWN';
+    overlaySub.textContent = 'Raspberry Pi をシャットダウンしています...';
+    overlay.classList.remove('hidden');
+    spinner.style.display = 'none';
+    fetch(_origin + '/shutdown').catch(() => {});
+  }
+
+  function rotateLeft() {
+    rotation = (rotation + 270) % 360;  // 左に90度 = 右に270度
+    addLog('回転: ' + rotation + '°', '');
+  }
+
+  function toggleFullscreen() {
+    const wrap = document.getElementById('frame-wrap');
+    if (!document.fullscreenElement) {
+      wrap.requestFullscreen().catch(() => addLog('フルスクリーン失敗', 'red'));
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  // ── ページを閉じたときにセッションを通知 ────────────
+  window.addEventListener('beforeunload', () => {
+    if (sid) navigator.sendBeacon(_origin + '/disconnect?sid=' + sid);
+  });
+
+  // ── 初期化 ───────────────────────────────────────────
+  addLog('RasPi Camera Viewer 起動', 'green');
+  listenEvents();
+  pollStatus();
+  connect();
+</script>
+</body>
+</html>
