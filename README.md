@@ -2,7 +2,7 @@
 
 ## 作品一覧
 
-### レシート管理WEB
+### 家計簿アプリ
 
 URL:
 https://ichi-choken.github.io/kakeibo/
