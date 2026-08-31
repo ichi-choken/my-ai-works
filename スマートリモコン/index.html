@@ -578,7 +578,20 @@ header span { font-size: .7rem; color: var(--muted); font-family: var(--mono); }
   color: var(--muted);
   background: var(--bg);
 }
-.auto-card-btns { display: flex; gap: 6px; }
+.auto-card-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.auto-add-act {
+  display: none; gap: 6px; margin-top: 8px; flex-wrap: wrap; align-items: center;
+  padding: 8px; border: 1px dashed var(--line); border-radius: 8px;
+}
+.auto-add-act select {
+  background: var(--bg2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font-size: .8rem; max-width: 46%;
+}
+.auto-action-chip .chip-del {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  margin-left: 4px; padding: 0 2px; font-size: .8rem; line-height: 1;
+}
+.auto-action-chip .chip-del:hover { color: var(--error); }
 .toggle-switch {
   position: relative;
   width: 32px;
@@ -2228,24 +2241,31 @@ function populateAutoDevSelect() {
   updateAutoOpSelect();
 }
 
-// Populate operation selector based on selected device
-async function updateAutoOpSelect() {
-  const devId = document.getElementById('auto-act-dev').value;
-  const sel   = document.getElementById('auto-act-op');
-  // fetch registered codes for this device
+// デバイスの操作一覧を <option> 文字列にして返す（共通処理）
+async function buildOpOptions(devId) {
   const codes = await api(`/api/devices/${devId}/codes`);
   const items = Array.isArray(codes) && codes.length && typeof codes[0] === 'string'
     ? codes.map(a => ({ action: a, label: '' }))
     : (codes || []);
-  // build opLabel map from opMap
   const dev   = _devices.find(d => d.id === devId);
   const opMap = dev ? (getOpMap(devId)) : {};
   const opLabel = {};
   Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
-  sel.innerHTML = items.map(({ action }) => {
-    const lbl = opLabel[action] || action;
-    return `<option value="${action}">${lbl}（${action}）</option>`;
+  return items.map(it => {
+    const lbl = it.label || opLabel[it.action] || it.action;
+    return `<option value="${it.action}">${lbl}（${it.action}）</option>`;
   }).join('') || '<option value="">（コードなし）</option>';
+}
+
+// デバイス一覧を <option> 文字列にして返す
+function buildDevOptions() {
+  return _devices.map(d => `<option value="${d.id}">${iconFor(d.icon)} ${d.name}</option>`).join('');
+}
+
+// Populate operation selector based on selected device
+async function updateAutoOpSelect() {
+  const devId = document.getElementById('auto-act-dev').value;
+  document.getElementById('auto-act-op').innerHTML = await buildOpOptions(devId);
 }
 
 document.getElementById('auto-act-dev').addEventListener('change', updateAutoOpSelect);
@@ -2342,13 +2362,14 @@ async function loadAutoList() {
       ? '毎日'
       : days.map(d => DAY_LABELS[d]).join('・');
 
-    const actChips = (auto.actions || []).map(a => {
+    const actChips = (auto.actions || []).map((a, i) => {
       const dev = _devices.find(d => d.id === a.device);
       const opMap = dev ? getOpMap(a.device) : {};
       const opLabel = {};
       Object.values(opMap).forEach(ops => ops.forEach(o => { opLabel[o.key] = o.label; }));
       const lbl = opLabel[a.action] || a.action;
-      return `<span class="auto-action-chip">${iconFor(dev?.icon || 'device')} ${dev?.name || a.device} — ${lbl}</span>`;
+      return `<span class="auto-action-chip">${iconFor(dev?.icon || 'device')} ${dev?.name || a.device} — ${lbl}`
+           + `<button class="chip-del" data-idx="${i}" title="この動作を削除">✕</button></span>`;
     }).join('');
 
     const card = document.createElement('div');
@@ -2365,11 +2386,60 @@ async function loadAutoList() {
       </div>
       <div class="auto-card-days">${daysStr}</div>
       <div class="auto-card-actions">${actChips || '<span class="auto-action-chip">アクションなし</span>'}</div>
+      <div class="auto-add-act"></div>
       <div class="auto-card-btns">
+        <button class="btn-sm btn-add-act-auto">＋ 動作追加</button>
         <button class="btn-sm s-send btn-run-auto">▶ 今すぐ実行</button>
         <button class="btn-sm s-del  btn-del-auto">削除</button>
       </div>
     `;
+
+    // 動作リストをサーバーに保存して再描画
+    const saveActions = async (actions) => {
+      const res = await api(`/api/automations/${auto.id}`, {
+        method: 'PUT', body: JSON.stringify({ actions })
+      });
+      if (res.ok) { loadAutoList(); }
+      else { toast(res.error || '保存に失敗しました', 'fail'); }
+      return res.ok;
+    };
+
+    // 既存の動作を削除
+    card.querySelectorAll('.chip-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const idx = parseInt(btn.dataset.idx);
+        const next = (auto.actions || []).filter((_, i) => i !== idx);
+        if (await saveActions(next)) toast('動作を削除しました', 'ok');
+      });
+    });
+
+    // 動作追加（インライン入力欄の開閉）
+    const addBox = card.querySelector('.auto-add-act');
+    card.querySelector('.btn-add-act-auto').addEventListener('click', async () => {
+      if (addBox.style.display === 'flex') { addBox.style.display = 'none'; return; }
+      addBox.style.display = 'flex';
+      addBox.innerHTML = '<span style="color:var(--muted);font-size:.75rem">読み込み中…</span>';
+      const firstDev = _devices[0]?.id;
+      addBox.innerHTML = `
+        <select class="a-dev">${buildDevOptions()}</select>
+        <select class="a-op">${firstDev ? await buildOpOptions(firstDev) : ''}</select>
+        <button class="btn-sm a-ok">追加</button>
+        <button class="btn-sm a-cancel">キャンセル</button>`;
+      const devSel = addBox.querySelector('.a-dev');
+      const opSel  = addBox.querySelector('.a-op');
+      devSel.addEventListener('change', async () => {
+        opSel.innerHTML = await buildOpOptions(devSel.value);
+      });
+      addBox.querySelector('.a-cancel').addEventListener('click', () => {
+        addBox.style.display = 'none';
+      });
+      addBox.querySelector('.a-ok').addEventListener('click', async () => {
+        const device = devSel.value, action = opSel.value;
+        if (!device || !action) { toast('デバイスと操作を選んでください', 'fail'); return; }
+        const next = [...(auto.actions || []), { device, action }];
+        if (await saveActions(next)) toast('動作を追加しました', 'ok');
+      });
+    });
 
     // Toggle enable
     card.querySelector('.auto-toggle').addEventListener('change', async (e) => {
