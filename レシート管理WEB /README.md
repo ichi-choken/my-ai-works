@@ -1,4 +1,7 @@
-﻿# レシート管理WEB
+※以下に移行しました
+https://github.com/ichi-choken/ichi-choken.github.io/tree/main/kakeibo
+ 
+ # レシート管理WEB
 
 以下の機能を持つレシート管理サイトをCluadeで作成しました．
 
