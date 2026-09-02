@@ -4,16 +4,6 @@ AI コーディングエージェントを活用して制作した，個人用�
 
 ## 作品一覧
 
-### 🧾 レシート家計簿
-
-🔗 https://ichi-choken.github.io/kakeibo/
-
-レシートを撮るだけで，商品ごとに分類・集計してくれる家計簿 Web アプリ．Gemini API による画像解析で店舗・日付・商品・金額を自動入力し，自分で定義した3階層のカテゴリに沿って分類します．サーバー不要で，データは端末内に保存されます．
-
-機能・実装・使い方の詳細：[ichi-choken.github.io/kakeibo](https://github.com/ichi-choken/ichi-choken.github.io/tree/main/kakeibo)
-
----
-
 ### 📡 スマートリモコン
 
 Raspberry Pi を赤外線リモコン化し，Web ブラウザから家電を操作できるようにしたものです．
